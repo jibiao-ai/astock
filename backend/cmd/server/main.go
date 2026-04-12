@@ -23,6 +23,9 @@ func main() {
 	mq.InitRabbitMQ(cfg)
 	defer mq.Close()
 
+	// Seed demo market data for past 7 days
+	handler.SeedDemoMarketData()
+
 	// Gin
 	if cfg.GinMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
@@ -50,7 +53,7 @@ func main() {
 	{
 		// Profile
 		auth.GET("/profile", h.GetProfile)
-		auth.GET("/dashboard", h.GetDashboard)
+		auth.GET("/dashboard", h.GetDashboardEnhanced)
 
 		// Market Data
 		auth.GET("/market/sentiment", h.GetMarketSentiment)
@@ -61,6 +64,7 @@ func main() {
 		auth.GET("/market/quote", h.GetStockQuote)
 		auth.GET("/market/kline", h.GetKLine)
 		auth.GET("/market/sectors", h.GetSectorList)
+		auth.POST("/market/fetch", h.FetchMarketData)
 
 		// Agents
 		auth.GET("/agents", h.ListAgents)

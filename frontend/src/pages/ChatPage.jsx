@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { listAgents, listConversations, createConversation, getMessages, sendMessage, deleteConversation } from '../services/api'
 import { Send, Plus, Trash2, Bot, User, Loader2, MessageSquare, Stethoscope, TrendingUp, Brain } from 'lucide-react'
 import toast from 'react-hot-toast'
+import ReactMarkdown from 'react-markdown'
 
 const AGENT_ICONS = {
   smart_ask: MessageSquare,
@@ -205,7 +206,13 @@ export default function ChatPage({ agentType }) {
                   ? 'bg-blue-500/20 text-white rounded-tr-none'
                   : 'bg-[#1a1f2e] text-gray-200 rounded-tl-none border border-[#2d3548]'
               }`}>
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.role === 'user' ? (
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                ) : (
+                  <div className="prose prose-invert prose-sm max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_code]:bg-[#0f1419] [&_code]:px-1 [&_code]:rounded [&_pre]:bg-[#0f1419] [&_pre]:p-2 [&_pre]:rounded-lg [&_table]:text-xs [&_th]:p-1 [&_td]:p-1">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                )}
                 <p className="text-[10px] text-gray-600 mt-2">{new Date(msg.created_at).toLocaleTimeString()}</p>
               </div>
             </div>
