@@ -24,7 +24,7 @@ func Load() *Config {
 	return &Config{
 		ServerPort:    getEnv("SERVER_PORT", "8080"),
 		GinMode:       getEnv("GIN_MODE", "debug"),
-		DBDriver:      getEnv("DB_DRIVER", "mysql"),
+		DBDriver:      getEnv("DB_DRIVER", "sqlite"),
 		DBHost:        getEnv("DB_HOST", "mysql"),
 		DBPort:        getEnv("DB_PORT", "3306"),
 		DBUser:        getEnv("DB_USER", "quantmind"),

@@ -27,7 +27,7 @@ api.interceptors.response.use(
 export const login = (username, password) => api.post('/login', { username, password })
 
 // Dashboard
-export const getDashboard = () => api.get('/dashboard')
+export const getDashboard = (params) => api.get('/dashboard', { params })
 export const getProfile = () => api.get('/profile')
 
 // Market
