@@ -2,12 +2,13 @@ import useStore from '../store/useStore'
 import { 
   LayoutDashboard, TrendingUp, Brain, MessageSquare, Stethoscope, 
   Crown, BarChart3, Settings, Users, Shield, ChevronLeft, ChevronRight,
-  Activity, Zap, Bot, Database, FileText, LogOut
+  Activity, Zap, Bot, Database, FileText, LogOut, Star
 } from 'lucide-react'
 
 const menuItems = [
   { key: 'dashboard', label: '看板大屏', icon: LayoutDashboard, group: '市场总览' },
   { key: 'realtime', label: '实时行情', icon: TrendingUp, group: '市场总览' },
+  { key: 'watchlist', label: '自选个股', icon: Star, group: '市场总览' },
   { key: 'smart-ask', label: '智能问股', icon: MessageSquare, group: 'AI智能体' },
   { key: 'smart-diagnose', label: '智能诊股', icon: Stethoscope, group: 'AI智能体' },
   { key: 'main-flow', label: '主力动向', icon: Activity, group: 'AI智能体' },

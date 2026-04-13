@@ -39,6 +39,19 @@ export const getBoardLadder = (params) => api.get('/market/board-ladder', { para
 export const getStockQuote = (params) => api.get('/market/quote', { params })
 export const getKLine = (params) => api.get('/market/kline', { params })
 export const getSectorList = (params) => api.get('/market/sectors', { params })
+export const getTrendChart = (params) => api.get('/market/trend', { params })
+export const getTrendChart5Day = (params) => api.get('/market/trend5day', { params })
+export const getChipDistribution = (params) => api.get('/market/chip', { params })
+export const getStockFundFlow = (params) => api.get('/market/fund-flow', { params })
+export const getConceptHeat = () => api.get('/market/concept-heat')
+export const getLimitUpDownDetails = (params) => api.get('/market/limit-details', { params })
+export const getSectorFundFlow = (params) => api.get('/market/sector-fund-flow', { params })
+
+// Watchlist
+export const getWatchlist = () => api.get('/watchlist')
+export const addWatchlistItem = (data) => api.post('/watchlist', data)
+export const removeWatchlistItem = (code) => api.delete(`/watchlist/${code}`)
+export const getWatchlistQuotes = () => api.get('/watchlist/quotes')
 
 // Agents
 export const listAgents = () => api.get('/agents')

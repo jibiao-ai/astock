@@ -65,6 +65,19 @@ func main() {
 		auth.GET("/market/kline", h.GetKLine)
 		auth.GET("/market/sectors", h.GetSectorList)
 		auth.POST("/market/fetch", h.FetchMarketData)
+		auth.GET("/market/trend", h.GetTrendChart)
+		auth.GET("/market/trend5day", h.GetTrendChart5Day)
+		auth.GET("/market/chip", h.GetChipDistribution)
+		auth.GET("/market/fund-flow", h.GetStockFundFlow)
+		auth.GET("/market/concept-heat", h.GetConceptHeat)
+		auth.GET("/market/limit-details", h.GetLimitUpDownDetails)
+		auth.GET("/market/sector-fund-flow", h.GetSectorFundFlow)
+
+		// Watchlist
+		auth.GET("/watchlist", h.GetWatchlist)
+		auth.POST("/watchlist", h.AddWatchlistItem)
+		auth.DELETE("/watchlist/:code", h.RemoveWatchlistItem)
+		auth.GET("/watchlist/quotes", h.GetWatchlistQuotes)
 
 		// Agents
 		auth.GET("/agents", h.ListAgents)
