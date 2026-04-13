@@ -422,41 +422,60 @@ func (h *Handler) GetConceptHeat(c *gin.Context) {
 
 // ==================== Dashboard Real Data ====================
 
-// GetLimitUpDownDetails returns detailed real-time limit-up and limit-down stocks
+// GetLimitUpDownDetails returns today's limit-up and limit-down stocks (09:15 to current time).
+// Uses Eastmoney clist API to fetch all A-stocks sorted by change_pct, then filters by limit thresholds:
+// Main board (00/60): ±10%, GEM (30): ±20%, STAR (688): ±20%, BSE (8/4): ±30%, ST: ±5%
 func (h *Handler) GetLimitUpDownDetails(c *gin.Context) {
 	limitType := c.DefaultQuery("type", "up") // "up" or "down"
 
+	// First try the dedicated pool API (more accurate during trading hours)
+	poolStocks := fetchLimitPoolStocks(limitType)
+	if len(poolStocks) > 0 {
+		response.Success(c, gin.H{
+			"stocks": poolStocks,
+			"count":  len(poolStocks),
+			"type":   limitType,
+		})
+		return
+	}
+
+	// Fallback: use clist API to scan all A-stocks and filter by limit thresholds
+	stocks := fetchLimitStocksFromClist(limitType)
+
+	response.Success(c, gin.H{
+		"stocks": stocks,
+		"count":  len(stocks),
+		"type":   limitType,
+	})
+}
+
+// fetchLimitPoolStocks tries the dedicated ZT/DT pool API (works during trading hours)
+func fetchLimitPoolStocks(limitType string) []gin.H {
 	var url string
 	if limitType == "down" {
-		// Limit-down pool
 		url = "https://push2ex.eastmoney.com/getTopicDTPool?ut=7eea3edcaed734bea9cb3f&dpt=wz.ztzt&fields=f1,f2,f3,f4,f6,f8,f12,f14,f15,f17,f22,f136,f224,f225"
 	} else {
-		// Limit-up pool
 		url = "https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cb3f&dpt=wz.ztzt&fields=f1,f2,f3,f4,f6,f8,f12,f14,f15,f17,f22,f136,f224,f225"
 	}
 
 	data, err := fetchEastmoneyAPI(url)
 	if err != nil {
-		response.InternalError(c, "获取涨跌停数据失败: "+err.Error())
-		return
+		return nil
 	}
 
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err != nil {
-		response.InternalError(c, "解析数据失败")
-		return
+		return nil
 	}
 
 	resultData, ok := raw["data"].(map[string]interface{})
 	if !ok {
-		response.Success(c, gin.H{"stocks": []interface{}{}, "count": 0})
-		return
+		return nil
 	}
 
 	pool, ok := resultData["pool"].([]interface{})
-	if !ok {
-		response.Success(c, gin.H{"stocks": []interface{}{}, "count": 0})
-		return
+	if !ok || len(pool) == 0 {
+		return nil
 	}
 
 	stocks := []gin.H{}
@@ -471,22 +490,151 @@ func (h *Handler) GetLimitUpDownDetails(c *gin.Context) {
 		fundAmt := safeFloat(d, "f6") / 100000000
 
 		stocks = append(stocks, gin.H{
-			"code":       safeString(d, "f12"),
-			"name":       safeString(d, "f14"),
-			"price":      price,
-			"open":       openPrice,
-			"change_pct": changePct,
+			"code":        safeString(d, "f12"),
+			"name":        safeString(d, "f14"),
+			"price":       price,
+			"open":        openPrice,
+			"change_pct":  changePct,
 			"fund_amount": fundAmt,
-			"concept":    safeString(d, "f225"),
+			"concept":     safeString(d, "f225"),
 			"board_count": safeInt(d, "f136"),
 		})
 	}
 
-	response.Success(c, gin.H{
-		"stocks": stocks,
-		"count":  len(stocks),
-		"type":   limitType,
-	})
+	return stocks
+}
+
+// fetchLimitStocksFromClist uses the A-stock list API to find stocks at their limit
+func fetchLimitStocksFromClist(limitType string) []gin.H {
+	// po=1: descending (for limit-up), po=0: ascending (for limit-down)
+	po := "1"
+	if limitType == "down" {
+		po = "0"
+	}
+
+	allStocks := []gin.H{}
+	// Fetch multiple pages to get all limit stocks
+	// All A-stock boards: SZ-A(m:0+t:6), GEM(m:0+t:80), SH-A(m:1+t:2), STAR(m:1+t:23), BSE(m:0+t:81+s:2048)
+	fs := "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+
+	for page := 1; page <= 5; page++ {
+		url := fmt.Sprintf(
+			"https://push2.eastmoney.com/api/qt/clist/get?pn=%d&pz=100&po=%s&np=1&fltt=2&invt=2&fid=f3&fs=%s&fields=f2,f3,f4,f5,f6,f7,f12,f14,f15,f16,f17,f18,f62",
+			page, po, fs)
+
+		data, err := fetchEastmoneyAPI(url)
+		if err != nil {
+			log.Printf("[LimitClist] page %d fetch error: %v", page, err)
+			break
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			break
+		}
+
+		resultData, ok := raw["data"].(map[string]interface{})
+		if !ok {
+			break
+		}
+
+		diffArr, ok := resultData["diff"].([]interface{})
+		if !ok || len(diffArr) == 0 {
+			break
+		}
+
+		foundAny := false
+		for _, item := range diffArr {
+			d, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			code := safeString(d, "f12")
+			name := safeString(d, "f14")
+			changePct := safeFloat(d, "f3")
+			price := safeFloat(d, "f2")
+			openPrice := safeFloat(d, "f17")
+			preClose := safeFloat(d, "f18")
+			fundAmt := safeFloat(d, "f62")
+
+			// Determine the limit threshold for this stock
+			threshold := getLimitThreshold(code, name)
+
+			// Skip new listing stocks (threshold == 0)
+			if threshold == 0 {
+				continue
+			}
+
+			isLimit := false
+			if limitType == "up" {
+				isLimit = changePct >= threshold
+			} else {
+				isLimit = changePct <= -threshold
+			}
+
+			if !isLimit {
+				// Since results are sorted, once we pass the threshold we can stop
+				continue
+			}
+
+			foundAny = true
+			allStocks = append(allStocks, gin.H{
+				"code":        code,
+				"name":        name,
+				"price":       price,
+				"open":        openPrice,
+				"pre_close":   preClose,
+				"change_pct":  changePct,
+				"fund_amount": fundAmt / 100000000, // convert to 亿
+				"concept":     "",
+				"board_count": 0,
+			})
+		}
+
+		// If no limit stocks found on this page, no need to fetch more
+		if !foundAny {
+			break
+		}
+	}
+
+	return allStocks
+}
+
+// getLimitThreshold returns the daily limit threshold (%) for a stock based on its code and name.
+// Returns 0 for stocks that should be skipped (e.g., new listings in first 5 days).
+func getLimitThreshold(code, name string) float64 {
+	// Skip new listing stocks (N prefix = first day, C prefix = days 2-5) as they have no limit
+	if strings.HasPrefix(name, "N") || strings.HasPrefix(name, "C") {
+		// But allow if it's clearly a ST stock name that happens to start with these
+		if !strings.Contains(name, "ST") && !strings.Contains(name, "st") {
+			return 0 // means skip
+		}
+	}
+
+	// ST stocks on GEM/STAR still follow GEM/STAR limits (20%)
+	isST := strings.Contains(name, "ST") || strings.Contains(name, "st")
+
+	// 创业板 GEM (30xxxx): 20% limit
+	if strings.HasPrefix(code, "30") {
+		return 19.9
+	}
+	// 科创板 STAR (688xxx): 20% limit
+	if strings.HasPrefix(code, "688") {
+		return 19.9
+	}
+	// 北交所 BSE (8xxxxx, 4xxxxx, 92xxxx): 30% limit
+	if strings.HasPrefix(code, "8") || strings.HasPrefix(code, "4") || strings.HasPrefix(code, "92") {
+		return 29.9
+	}
+
+	// ST stocks on main board: 5% limit
+	if isST {
+		return 4.9
+	}
+
+	// Main board (00xxxx, 60xxxx): 10% limit
+	return 9.9
 }
 
 // GetSectorFundFlow returns sector fund flow with actual amounts

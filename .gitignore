@@ -46,3 +46,4 @@ rabbitmq_data/
 # Test
 coverage/
 *.cover
+backend/server

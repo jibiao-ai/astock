@@ -270,7 +270,7 @@ export default function DashboardPage() {
                   </tr>
                 ))}
                 {currentLimitStocks.length === 0 && (
-                  <tr><td colSpan={6} className="text-center p-4 text-gray-400">暂无当日数据（非交易时段）</td></tr>
+                  <tr><td colSpan={6} className="text-center p-4 text-gray-400">暂无当日涨跌停数据</td></tr>
                 )}
               </tbody>
             </table>
