@@ -50,6 +50,7 @@ func InitDB(cfg *config.Config) {
 		&model.MarketSentiment{},
 		&model.StrategySignal{},
 		&model.KLineData{},
+		&model.WatchlistItem{},
 		&model.AuditLog{},
 		&model.TaskLog{},
 	)

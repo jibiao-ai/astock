@@ -197,6 +197,17 @@ type StrategySignal struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// WatchlistItem - 自选股
+type WatchlistItem struct {
+	ID        uint           `gorm:"primaryKey" json:"id"`
+	UserID    uint           `gorm:"index" json:"user_id"`
+	Code      string         `gorm:"size:20;index" json:"code"`
+	Name      string         `gorm:"size:100" json:"name"`
+	SortOrder int            `gorm:"default:0" json:"sort_order"`
+	CreatedAt time.Time      `json:"created_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
 // KLineData - K线数据
 type KLineData struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`

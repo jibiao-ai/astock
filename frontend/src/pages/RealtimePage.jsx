@@ -1,33 +1,40 @@
-import { useState } from 'react'
-import { getStockQuote, getKLine, getSectorList } from '../services/api'
-import { Search, TrendingUp, RefreshCw, Database } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { getStockQuote, getTrendChart, getChipDistribution, getStockFundFlow } from '../services/api'
+import { Search, TrendingUp, RefreshCw, Database, BarChart3, Activity } from 'lucide-react'
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, CartesianGrid, Cell } from 'recharts'
 import toast from 'react-hot-toast'
 
 const SOURCES = [
+  { key: 'eastmoney', label: '东方财富', color: '#513CC8' },
   { key: 'sina', label: '新浪财经', color: '#EF4444' },
   { key: 'tencent', label: '腾讯财经', color: '#3B82F6' },
-  { key: 'eastmoney', label: '东方财富', color: '#F59E0B' },
-  { key: 'tdx', label: '通达信', color: '#22C55E' },
 ]
 
 export default function RealtimePage() {
   const [code, setCode] = useState('')
-  const [source, setSource] = useState('sina')
+  const [source, setSource] = useState('eastmoney')
   const [quote, setQuote] = useState(null)
   const [loading, setLoading] = useState(false)
   const [searchHistory, setSearchHistory] = useState([])
+  const [trendData, setTrendData] = useState(null)
+  const [chipData, setChipData] = useState(null)
+  const [fundFlowData, setFundFlowData] = useState(null)
+  const [activeTab, setActiveTab] = useState('trend')
 
   const fetchQuote = async () => {
     if (!code) { toast.error('请输入股票代码'); return }
+    const cleanCode = code.replace(/\D/g, '')
     setLoading(true)
     try {
-      const res = await getStockQuote({ code: code.replace(/\D/g, ''), source })
+      const res = await getStockQuote({ code: cleanCode, source })
       if (res.code === 0) {
         setQuote(res.data)
         setSearchHistory(prev => {
           const filtered = prev.filter(h => h.code !== res.data.code)
           return [{ code: res.data.code, name: res.data.name }, ...filtered].slice(0, 10)
         })
+        // Fetch trend chart and chip distribution in parallel
+        fetchTrendAndChip(cleanCode)
       } else {
         toast.error(res.message)
       }
@@ -37,12 +44,29 @@ export default function RealtimePage() {
     setLoading(false)
   }
 
+  const fetchTrendAndChip = async (stockCode) => {
+    try {
+      const [trendRes, chipRes, fundRes] = await Promise.all([
+        getTrendChart({ code: stockCode }).catch(() => null),
+        getChipDistribution({ code: stockCode }).catch(() => null),
+        getStockFundFlow({ code: stockCode }).catch(() => null),
+      ])
+      if (trendRes?.code === 0) setTrendData(trendRes.data)
+      if (chipRes?.code === 0) setChipData(chipRes.data)
+      if (fundRes?.code === 0) setFundFlowData(fundRes.data)
+    } catch (e) {
+      console.error('获取趋势/筹码数据失败', e)
+    }
+  }
+
+  const tooltipStyle = { background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }
+
   return (
     <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold gradient-text">实时行情</h1>
-          <p className="text-xs text-gray-400 mt-1">多通道数据接入：新浪 · 腾讯 · 东财 · 通达信</p>
+          <p className="text-xs text-gray-400 mt-1">默认东方财富接口 · 支持分时趋势图 · 筹码分布 · 资金流向</p>
         </div>
       </div>
 
@@ -149,6 +173,174 @@ export default function RealtimePage() {
         </div>
       )}
 
+      {/* Trend Chart + Chip Distribution */}
+      {quote && (
+        <div className="glass-card p-4">
+          <div className="flex items-center gap-2 mb-4 border-b border-gray-100 pb-3">
+            {[
+              { key: 'trend', label: '分时走势', icon: TrendingUp },
+              { key: 'chip', label: '资金流向(筹码)', icon: BarChart3 },
+              { key: 'fundflow', label: '主力/散户资金', icon: Activity },
+            ].map(tab => (
+              <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition ${
+                  activeTab === tab.key
+                    ? 'text-white shadow-md'
+                    : 'text-gray-500 hover:text-gray-700 bg-gray-50 border border-gray-200'
+                }`}
+                style={activeTab === tab.key ? { background: '#513CC8' } : {}}>
+                <tab.icon size={14} />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Trend Tab */}
+          {activeTab === 'trend' && trendData && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">
+                  当日分时走势 · {trendData.name || quote.name}
+                </h3>
+                <span className="text-xs text-gray-400">{trendData.trends?.length || 0} 个数据点</span>
+              </div>
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={trendData.trends || []}>
+                  <defs>
+                    <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#513CC8" stopOpacity={0.15}/>
+                      <stop offset="95%" stopColor="#513CC8" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" />
+                  <XAxis dataKey="time" tick={{fontSize: 10, fill: '#9CA3AF'}}
+                    tickFormatter={v => v?.split(' ')?.[1]?.slice(0, 5) || v}
+                    interval={Math.floor((trendData.trends?.length || 1) / 8)} />
+                  <YAxis tick={{fontSize: 10, fill: '#9CA3AF'}} 
+                    domain={['dataMin - 0.5', 'dataMax + 0.5']}
+                    tickFormatter={v => typeof v === 'number' ? v.toFixed(2) : v} />
+                  {trendData.pre_close > 0 && (
+                    <ReferenceLine y={trendData.pre_close} stroke="#9CA3AF" strokeDasharray="3 3" 
+                      label={{ value: `昨收 ${trendData.pre_close.toFixed(2)}`, fontSize: 10, fill: '#9CA3AF' }} />
+                  )}
+                  <Tooltip contentStyle={tooltipStyle}
+                    formatter={(v, name) => {
+                      if (name === 'price') return [typeof v === 'number' ? v.toFixed(2) : v, '价格']
+                      if (name === 'avg') return [typeof v === 'number' ? v.toFixed(2) : v, '均价']
+                      return [v, name]
+                    }}
+                    labelFormatter={l => l?.split(' ')?.[1] || l} />
+                  <Area type="monotone" dataKey="price" stroke="#513CC8" fill="url(#trendGrad)" 
+                    strokeWidth={1.5} dot={false} name="price" />
+                  <Area type="monotone" dataKey="avg" stroke="#F59E0B" fill="none" 
+                    strokeWidth={1} strokeDasharray="4 2" dot={false} name="avg" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {activeTab === 'trend' && !trendData && (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              <TrendingUp size={32} className="mx-auto mb-2 opacity-50" />
+              暂无分时数据（非交易时段或数据源暂不可用）
+            </div>
+          )}
+
+          {/* Chip/Fund Flow Tab */}
+          {activeTab === 'chip' && chipData && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">
+                  资金流向趋势（近期） · 单位：万元
+                </h3>
+              </div>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={chipData.klines || []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" />
+                  <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
+                  <YAxis tick={{fontSize: 10, fill: '#9CA3AF'}} tickFormatter={v => typeof v === 'number' ? (v/10000).toFixed(0) + '万' : v} />
+                  <Tooltip contentStyle={tooltipStyle}
+                    formatter={(v, name) => {
+                      const label = { main_net: '主力净流入', retail_net: '散户净流入' }[name] || name
+                      return [typeof v === 'number' ? v.toFixed(0) + '万' : v, label]
+                    }} />
+                  <Bar dataKey="main_net" name="main_net" radius={[4,4,0,0]}>
+                    {(chipData.klines || []).map((entry, i) => (
+                      <Cell key={i} fill={entry.main_net >= 0 ? '#EF4444' : '#22C55E'} />
+                    ))}
+                  </Bar>
+                  <Bar dataKey="retail_net" name="retail_net" radius={[4,4,0,0]}>
+                    {(chipData.klines || []).map((entry, i) => (
+                      <Cell key={i} fill={entry.retail_net >= 0 ? '#F59E0B' : '#3B82F6'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="flex justify-center gap-6 text-xs mt-2">
+                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-red-500"></span>主力净流入</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-green-500"></span>主力净流出</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-yellow-500"></span>散户净流入</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-blue-500"></span>散户净流出</span>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'chip' && !chipData && (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              <BarChart3 size={32} className="mx-auto mb-2 opacity-50" />
+              暂无资金流向数据
+            </div>
+          )}
+
+          {/* Fund Flow Detail Tab */}
+          {activeTab === 'fundflow' && fundFlowData && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">
+                  主力/散户资金分时（近5日） · 单位：元
+                </h3>
+              </div>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={fundFlowData.klines || []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" />
+                  <XAxis dataKey="date" tick={{fontSize: 10, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
+                  <YAxis tick={{fontSize: 10, fill: '#9CA3AF'}} 
+                    tickFormatter={v => typeof v === 'number' ? (v / 100000000).toFixed(1) + '亿' : v} />
+                  <Tooltip contentStyle={tooltipStyle}
+                    formatter={(v, name) => {
+                      const labels = { main_net: '主力净额', retail_net: '散户净额', super_big: '超大单', big: '大单', mid: '中单' }
+                      return [typeof v === 'number' ? (v / 100000000).toFixed(2) + '亿' : v, labels[name] || name]
+                    }} />
+                  <Bar dataKey="main_net" name="main_net" stackId="a" radius={[2,2,0,0]}>
+                    {(fundFlowData.klines || []).map((entry, i) => (
+                      <Cell key={i} fill={entry.main_net >= 0 ? '#EF4444' : '#22C55E'} />
+                    ))}
+                  </Bar>
+                  <Bar dataKey="retail_net" name="retail_net" stackId="b" radius={[2,2,0,0]}>
+                    {(fundFlowData.klines || []).map((entry, i) => (
+                      <Cell key={i} fill={entry.retail_net >= 0 ? '#F59E0B' : '#3B82F6'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="flex justify-center gap-6 text-xs mt-2">
+                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-red-500"></span>主力净流入</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-green-500"></span>主力净流出</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-yellow-500"></span>散户净流入</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-blue-500"></span>散户净流出</span>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'fundflow' && !fundFlowData && (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              <Activity size={32} className="mx-auto mb-2 opacity-50" />
+              暂无资金分时数据
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Quick Access */}
       {!quote && (
         <div className="glass-card p-8 text-center">
@@ -156,7 +348,7 @@ export default function RealtimePage() {
             <TrendingUp size={32} style={{ color: '#513CC8' }} />
           </div>
           <h3 className="text-lg text-gray-700 mb-2 font-medium">输入股票代码查询实时行情</h3>
-          <p className="text-sm text-gray-400 mb-6">支持沪深A股代码，如 600519(贵州茅台)、000001(平安银行)、300750(宁德时代)</p>
+          <p className="text-sm text-gray-400 mb-6">默认使用东方财富接口，支持分时走势图和筹码分布图</p>
           <div className="flex justify-center gap-3 flex-wrap">
             {[
               { code: '600519', name: '贵州茅台' },
