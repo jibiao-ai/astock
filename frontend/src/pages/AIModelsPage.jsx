@@ -57,51 +57,53 @@ export default function AIModelsPage() {
     setProviders(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p))
   }
 
-  const CATEGORY_COLORS = { llm: '#3b82f6', finance: '#f59e0b' }
+  const CATEGORY_COLORS = { llm: '#513CC8', finance: '#F59E0B' }
 
   return (
-    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#0f1419' }}>
+    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold gradient-text">AI模型管理</h1>
-          <p className="text-xs text-gray-500 mt-1">页面化配置国内外多家模型厂商API · 所有参数在页面填写</p>
+          <p className="text-xs text-gray-400 mt-1">页面化配置国内外多家模型厂商API · 所有参数在页面填写</p>
         </div>
         <button onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-white" style={{ background: 'linear-gradient(135deg, #f59e0b, #ef4444)' }}>
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-white font-medium shadow-md"
+          style={{ background: '#513CC8', boxShadow: '0 2px 8px rgba(81,60,200,0.3)' }}>
           <Plus size={16} /> 添加提供商
         </button>
       </div>
 
       <div className="space-y-3">
         {providers.map(p => (
-          <div key={p.id} className={`glass-card p-4 ${p.is_default ? 'ring-1 ring-amber-500/50' : ''}`}>
+          <div key={p.id} className={`glass-card p-4 ${p.is_default ? 'ring-2 ring-[#513CC8]/30' : ''}`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center" 
-                  style={{ background: `${CATEGORY_COLORS[p.category] || '#3b82f6'}20` }}>
-                  <Database size={16} style={{ color: CATEGORY_COLORS[p.category] || '#3b82f6' }} />
+                  style={{ background: `${CATEGORY_COLORS[p.category] || '#513CC8'}10` }}>
+                  <Database size={16} style={{ color: CATEGORY_COLORS[p.category] || '#513CC8' }} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-white">{p.label}</h3>
-                    {p.is_default && <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-400">默认</span>}
+                    <h3 className="text-sm font-semibold text-gray-900">{p.label}</h3>
+                    {p.is_default && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: '#F0EDFA', color: '#513CC8' }}>默认</span>}
                     <span className="px-1.5 py-0.5 rounded text-[10px]" 
-                      style={{ background: `${CATEGORY_COLORS[p.category]}20`, color: CATEGORY_COLORS[p.category] }}>
+                      style={{ background: `${CATEGORY_COLORS[p.category]}10`, color: CATEGORY_COLORS[p.category] }}>
                       {p.category === 'finance' ? '金融API' : 'LLM'}
                     </span>
                   </div>
-                  <p className="text-[10px] text-gray-500">{p.name}</p>
+                  <p className="text-[10px] text-gray-400">{p.name}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => handleTest(p.id)} disabled={testing === p.id}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 transition">
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+                  style={{ background: '#F0EDFA', color: '#513CC8' }}>
                   {testing === p.id ? <Loader2 size={12} className="animate-spin" /> : <TestTube size={12} />}
                   测试连接
                 </button>
                 {!p.is_default && (
                   <button onClick={() => handleSetDefault(p)}
-                    className="px-3 py-1.5 rounded-lg text-xs text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition">
+                    className="px-3 py-1.5 rounded-lg text-xs text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200 transition">
                     设为默认
                   </button>
                 )}
@@ -110,50 +112,49 @@ export default function AIModelsPage() {
                     updateField(p.id, 'is_enabled', e.target.checked)
                     handleUpdate({ ...p, is_enabled: e.target.checked })
                   }} className="sr-only peer" />
-                  <div className="w-9 h-5 bg-[#2d3548] peer-checked:bg-green-500/30 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 after:peer-checked:bg-green-400 after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                  <div className="w-9 h-5 bg-gray-200 peer-checked:bg-[#513CC8] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm"></div>
                 </label>
               </div>
             </div>
             
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Base URL</label>
+                <label className="text-[10px] text-gray-400 mb-1 block">Base URL</label>
                 <input value={p.base_url} onChange={e => updateField(p.id, 'base_url', e.target.value)}
                   onBlur={() => handleUpdate(p)}
-                  className="w-full px-2.5 py-1.5 bg-[#0f1419] border border-[#2d3548] rounded text-xs text-white focus:border-amber-500 focus:outline-none" />
+                  className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:border-[#513CC8] focus:outline-none" />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">API Key</label>
+                <label className="text-[10px] text-gray-400 mb-1 block">API Key</label>
                 <div className="relative">
                   <input type={showKeys[p.id] ? 'text' : 'password'} value={p.api_key} 
                     onChange={e => updateField(p.id, 'api_key', e.target.value)}
                     onBlur={() => handleUpdate(p)}
                     placeholder="在此填写API密钥"
-                    className="w-full px-2.5 py-1.5 pr-8 bg-[#0f1419] border border-[#2d3548] rounded text-xs text-white focus:border-amber-500 focus:outline-none" />
+                    className="w-full px-2.5 py-1.5 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:border-[#513CC8] focus:outline-none" />
                   <button onClick={() => setShowKeys({...showKeys, [p.id]: !showKeys[p.id]})}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                     {showKeys[p.id] ? <EyeOff size={12}/> : <Eye size={12}/>}
                   </button>
                 </div>
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">模型</label>
+                <label className="text-[10px] text-gray-400 mb-1 block">模型</label>
                 <input value={p.model} onChange={e => updateField(p.id, 'model', e.target.value)}
                   onBlur={() => handleUpdate(p)}
-                  className="w-full px-2.5 py-1.5 bg-[#0f1419] border border-[#2d3548] rounded text-xs text-white focus:border-amber-500 focus:outline-none" />
+                  className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-900 focus:border-[#513CC8] focus:outline-none" />
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Add Provider Modal */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="glass-card p-6 w-full max-w-lg">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg border border-gray-200 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">添加AI模型提供商</h3>
-              <button onClick={() => setShowAdd(false)} className="text-gray-500 hover:text-white"><X size={20}/></button>
+              <h3 className="text-lg font-semibold text-gray-900">添加AI模型提供商</h3>
+              <button onClick={() => setShowAdd(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
             <div className="space-y-3">
               {[
@@ -164,24 +165,24 @@ export default function AIModelsPage() {
                 { key: 'model', label: '模型名', placeholder: 'e.g. gpt-4o' },
               ].map(f => (
                 <div key={f.key}>
-                  <label className="text-xs text-gray-400 mb-1 block">{f.label}</label>
+                  <label className="text-xs text-gray-500 mb-1 block">{f.label}</label>
                   <input value={newProvider[f.key]} onChange={e => setNewProvider({...newProvider, [f.key]: e.target.value})}
                     placeholder={f.placeholder}
-                    className="w-full px-3 py-2 bg-[#0f1419] border border-[#2d3548] rounded-lg text-white text-sm focus:border-amber-500 focus:outline-none" />
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:border-[#513CC8] focus:ring-2 focus:ring-[#513CC8]/10 focus:outline-none" />
                 </div>
               ))}
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">类别</label>
+                <label className="text-xs text-gray-500 mb-1 block">类别</label>
                 <select value={newProvider.category} onChange={e => setNewProvider({...newProvider, category: e.target.value})}
-                  className="w-full px-3 py-2 bg-[#0f1419] border border-[#2d3548] rounded-lg text-white text-sm focus:border-amber-500 focus:outline-none">
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:border-[#513CC8] focus:ring-2 focus:ring-[#513CC8]/10 focus:outline-none">
                   <option value="llm">大语言模型(LLM)</option>
                   <option value="finance">金融数据API</option>
                 </select>
               </div>
               <div className="flex justify-end gap-3 pt-2">
-                <button onClick={() => setShowAdd(false)} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white bg-[#1a1f2e]">取消</button>
-                <button onClick={handleAddProvider} className="px-4 py-2 rounded-lg text-sm text-white"
-                  style={{ background: 'linear-gradient(135deg, #f59e0b, #ef4444)' }}>保存</button>
+                <button onClick={() => setShowAdd(false)} className="px-4 py-2 rounded-xl text-sm text-gray-500 bg-gray-50 border border-gray-200">取消</button>
+                <button onClick={handleAddProvider} className="px-4 py-2 rounded-xl text-sm text-white font-medium"
+                  style={{ background: '#513CC8' }}>保存</button>
               </div>
             </div>
           </div>

@@ -10,7 +10,7 @@ function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-right" toastOptions={{
-        style: { background: '#1e2536', color: '#e8eaed', border: '1px solid #2d3548' }
+        style: { background: '#FFFFFF', color: '#1A1A2E', border: '1px solid #E5E7EB', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }
       }} />
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <LoginPage />} />

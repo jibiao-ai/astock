@@ -30,7 +30,6 @@ export default function SignalsPage() {
       if (res.code === 0 && res.data?.length > 0) {
         setSignals(res.data)
       } else {
-        // Demo signals when no data
         setSignals(demoSignals)
       }
     } catch (e) { setSignals(demoSignals) }
@@ -50,26 +49,26 @@ export default function SignalsPage() {
 
   const getSignalColor = (signal) => {
     switch(signal) {
-      case 'buy': return { bg: '#ef444420', text: '#ef4444', label: '买入' }
-      case 'sell': return { bg: '#22c55e20', text: '#22c55e', label: '卖出' }
-      default: return { bg: '#f59e0b20', text: '#f59e0b', label: '持有' }
+      case 'buy': return { bg: '#FEF2F2', text: '#EF4444', label: '买入' }
+      case 'sell': return { bg: '#F0FDF4', text: '#22C55E', label: '卖出' }
+      default: return { bg: '#FFFBEB', text: '#F59E0B', label: '持有' }
     }
   }
 
   const getStrategyLabel = (name) => STRATEGY_OPTIONS.find(s => s.value === name)?.label || name
 
   return (
-    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#0f1419' }}>
+    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold gradient-text">策略信号</h1>
-          <p className="text-xs text-gray-500 mt-1">实时策略信号输出 · 数据来源：Baostock/东财/新浪</p>
+          <p className="text-xs text-gray-400 mt-1">实时策略信号输出 · 数据来源：Baostock/东财/新浪</p>
         </div>
         <div className="flex items-center gap-3">
           <input type="date" value={date} onChange={e => setDate(e.target.value)}
-            className="px-3 py-2 bg-[#1a1f2e] border border-[#2d3548] rounded-lg text-white text-sm focus:border-amber-500 focus:outline-none" />
+            className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-900 text-sm focus:border-[#513CC8] focus:ring-2 focus:ring-[#513CC8]/10 focus:outline-none" />
           <select value={strategy} onChange={e => setStrategy(e.target.value)}
-            className="px-3 py-2 bg-[#1a1f2e] border border-[#2d3548] rounded-lg text-white text-sm focus:border-amber-500 focus:outline-none">
+            className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-900 text-sm focus:border-[#513CC8] focus:ring-2 focus:ring-[#513CC8]/10 focus:outline-none">
             {STRATEGY_OPTIONS.map(s => (
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
@@ -80,28 +79,28 @@ export default function SignalsPage() {
       <div className="glass-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-gray-500 border-b border-[#2d3548] bg-[#141820]">
-              <th className="text-left p-3">策略</th>
-              <th className="text-left p-3">股票</th>
-              <th className="text-center p-3">信号</th>
-              <th className="text-right p-3">评分</th>
-              <th className="text-left p-3">分析理由</th>
-              <th className="text-right p-3">日期</th>
+            <tr className="text-gray-400 border-b border-gray-100 bg-gray-50/50">
+              <th className="text-left p-3 font-medium">策略</th>
+              <th className="text-left p-3 font-medium">股票</th>
+              <th className="text-center p-3 font-medium">信号</th>
+              <th className="text-right p-3 font-medium">评分</th>
+              <th className="text-left p-3 font-medium">分析理由</th>
+              <th className="text-right p-3 font-medium">日期</th>
             </tr>
           </thead>
           <tbody>
             {signals.map((s, i) => {
               const sc = getSignalColor(s.signal)
               return (
-                <tr key={i} className="border-b border-[#2d3548]/30 hover:bg-[#1a1f2e] transition">
+                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
                   <td className="p-3">
-                    <span className="px-2 py-1 rounded text-xs bg-[#0f1419] text-amber-400 border border-amber-500/20">
+                    <span className="px-2 py-1 rounded text-xs font-medium" style={{ background: '#F0EDFA', color: '#513CC8' }}>
                       {getStrategyLabel(s.strategy_name)}
                     </span>
                   </td>
                   <td className="p-3">
-                    <span className="text-white font-medium">{s.name}</span>
-                    <span className="text-gray-500 ml-1 text-xs">{s.code}</span>
+                    <span className="text-gray-900 font-medium">{s.name}</span>
+                    <span className="text-gray-400 ml-1 text-xs">{s.code}</span>
                   </td>
                   <td className="p-3 text-center">
                     <span className="px-2 py-1 rounded text-xs font-medium" style={{ background: sc.bg, color: sc.text }}>
@@ -109,12 +108,12 @@ export default function SignalsPage() {
                     </span>
                   </td>
                   <td className="p-3 text-right">
-                    <span className={`font-bold ${s.score >= 80 ? 'text-red-400' : s.score >= 60 ? 'text-amber-400' : 'text-gray-400'}`}>
+                    <span className={`font-bold ${s.score >= 80 ? 'text-red-500' : s.score >= 60 ? 'text-amber-500' : 'text-gray-400'}`}>
                       {s.score?.toFixed(1)}
                     </span>
                   </td>
-                  <td className="p-3 text-xs text-gray-400 max-w-xs truncate">{s.reason}</td>
-                  <td className="p-3 text-right text-xs text-gray-500">{s.trade_date}</td>
+                  <td className="p-3 text-xs text-gray-500 max-w-xs truncate">{s.reason}</td>
+                  <td className="p-3 text-right text-xs text-gray-400">{s.trade_date}</td>
                 </tr>
               )
             })}

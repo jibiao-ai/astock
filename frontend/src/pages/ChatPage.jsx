@@ -12,10 +12,10 @@ const AGENT_ICONS = {
 }
 
 const AGENT_COLORS = {
-  smart_ask: '#3b82f6',
-  smart_diagnose: '#22c55e',
-  main_flow: '#f59e0b',
-  quant_expert: '#8b5cf6',
+  smart_ask: '#513CC8',
+  smart_diagnose: '#22C55E',
+  main_flow: '#F59E0B',
+  quant_expert: '#8B5CF6',
 }
 
 export default function ChatPage({ agentType }) {
@@ -119,7 +119,7 @@ export default function ChatPage({ agentType }) {
   }
 
   const Icon = AGENT_ICONS[agentType] || Brain
-  const color = AGENT_COLORS[agentType] || '#8b5cf6'
+  const color = AGENT_COLORS[agentType] || '#513CC8'
 
   const EXAMPLES = {
     smart_ask: ['查询贵州茅台600519今日行情', '分析宁德时代300750的技术指标', '比亚迪002594最近资金流向如何？'],
@@ -129,13 +129,13 @@ export default function ChatPage({ agentType }) {
   }
 
   return (
-    <div className="flex h-full" style={{ background: '#0f1419' }}>
+    <div className="flex h-full" style={{ background: '#F8F9FC' }}>
       {/* Conversation List */}
-      <div className="w-64 border-r border-[#2d3548] flex flex-col" style={{ background: '#141820' }}>
-        <div className="p-3 border-b border-[#2d3548]">
+      <div className="w-64 border-r border-gray-200 flex flex-col bg-white">
+        <div className="p-3 border-b border-gray-100">
           <button onClick={handleNewConversation}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium text-white transition hover:scale-[1.02]"
-            style={{ background: `${color}30`, color }}>
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-medium text-white transition hover:shadow-md"
+            style={{ background: color }}>
             <Plus size={16} /> 新对话
           </button>
         </div>
@@ -145,15 +145,15 @@ export default function ChatPage({ agentType }) {
             return c.agent_id === selectedAgent.id
           }).map(conv => (
             <div key={conv.id} onClick={() => selectConversation(conv)}
-              className={`flex items-center justify-between p-3 cursor-pointer transition text-sm border-b border-[#2d3548]/30 ${
-                selectedConv?.id === conv.id ? 'bg-[#1a1f2e]' : 'hover:bg-[#1a1f2e]/50'
+              className={`flex items-center justify-between p-3 cursor-pointer transition text-sm border-b border-gray-50 ${
+                selectedConv?.id === conv.id ? 'bg-gray-50' : 'hover:bg-gray-50'
               }`}>
               <div className="flex items-center gap-2 overflow-hidden">
                 <Icon size={14} style={{ color }} />
-                <span className="truncate text-gray-300">{conv.title}</span>
+                <span className="truncate text-gray-700">{conv.title}</span>
               </div>
               <button onClick={(e) => handleDeleteConv(conv.id, e)}
-                className="text-gray-600 hover:text-red-400 flex-shrink-0">
+                className="text-gray-300 hover:text-red-400 flex-shrink-0">
                 <Trash2 size={12} />
               </button>
             </div>
@@ -164,13 +164,13 @@ export default function ChatPage({ agentType }) {
       {/* Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-[#2d3548] flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${color}20` }}>
+        <div className="p-4 border-b border-gray-200 flex items-center gap-3 bg-white">
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: `${color}10` }}>
             <Icon size={18} style={{ color }} />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-white">{selectedAgent?.name || '智能体'}</h2>
-            <p className="text-xs text-gray-500">{selectedAgent?.description?.slice(0, 60) || 'Hermes Agent 驱动'}</p>
+            <h2 className="text-sm font-semibold text-gray-900">{selectedAgent?.name || '智能体'}</h2>
+            <p className="text-xs text-gray-400">{selectedAgent?.description?.slice(0, 60) || 'Hermes Agent 驱动'}</p>
           </div>
         </div>
 
@@ -178,16 +178,16 @@ export default function ChatPage({ agentType }) {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 && (
             <div className="text-center py-12">
-              <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: `${color}15` }}>
+              <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: `${color}08` }}>
                 <Icon size={32} style={{ color }} />
               </div>
-              <h3 className="text-lg font-semibold text-white mb-2">{selectedAgent?.name || '智能体'}</h3>
-              <p className="text-sm text-gray-500 mb-6 max-w-md mx-auto">{selectedAgent?.description || '开始对话吧'}</p>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{selectedAgent?.name || '智能体'}</h3>
+              <p className="text-sm text-gray-400 mb-6 max-w-md mx-auto">{selectedAgent?.description || '开始对话吧'}</p>
               <div className="space-y-2 max-w-md mx-auto">
                 {(EXAMPLES[agentType] || []).map((ex, i) => (
                   <button key={i} onClick={() => { setInput(ex); if (!selectedConv) handleNewConversation() }}
-                    className="w-full p-3 rounded-lg text-left text-sm text-gray-400 hover:text-white bg-[#1a1f2e] hover:bg-[#252d3f] transition border border-[#2d3548]">
-                    💡 {ex}
+                    className="w-full p-3 rounded-xl text-left text-sm text-gray-500 hover:text-gray-800 bg-white hover:bg-gray-50 transition border border-gray-200 hover:border-gray-300 shadow-sm">
+                    {ex}
                   </button>
                 ))}
               </div>
@@ -196,38 +196,40 @@ export default function ChatPage({ agentType }) {
 
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                msg.role === 'user' ? 'bg-blue-500/20' : ''
-              }`} style={msg.role !== 'user' ? { background: `${color}20` } : {}}>
-                {msg.role === 'user' ? <User size={16} className="text-blue-400" /> : <Icon size={16} style={{ color }} />}
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0`}
+                style={{ background: msg.role === 'user' ? '#513CC810' : `${color}10` }}>
+                {msg.role === 'user' ? <User size={16} style={{ color: '#513CC8' }} /> : <Icon size={16} style={{ color }} />}
               </div>
               <div className={`max-w-[70%] p-3 rounded-xl text-sm leading-relaxed ${
                 msg.role === 'user'
-                  ? 'bg-blue-500/20 text-white rounded-tr-none'
-                  : 'bg-[#1a1f2e] text-gray-200 rounded-tl-none border border-[#2d3548]'
-              }`}>
+                  ? 'text-white rounded-tr-none shadow-md'
+                  : 'bg-white text-gray-800 rounded-tl-none border border-gray-200 shadow-sm'
+              }`}
+                style={msg.role === 'user' ? { background: '#513CC8' } : {}}>
                 {msg.role === 'user' ? (
                   <div className="whitespace-pre-wrap">{msg.content}</div>
                 ) : (
-                  <div className="prose prose-invert prose-sm max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_code]:bg-[#0f1419] [&_code]:px-1 [&_code]:rounded [&_pre]:bg-[#0f1419] [&_pre]:p-2 [&_pre]:rounded-lg [&_table]:text-xs [&_th]:p-1 [&_td]:p-1">
+                  <div className="prose prose-sm max-w-none [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:rounded [&_pre]:bg-gray-50 [&_pre]:p-2 [&_pre]:rounded-lg [&_table]:text-xs [&_th]:p-1 [&_td]:p-1">
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
                 )}
-                <p className="text-[10px] text-gray-600 mt-2">{new Date(msg.created_at).toLocaleTimeString()}</p>
+                <p className="text-[10px] mt-2" style={{ color: msg.role === 'user' ? 'rgba(255,255,255,0.6)' : '#9CA3AF' }}>
+                  {new Date(msg.created_at).toLocaleTimeString()}
+                </p>
               </div>
             </div>
           ))}
 
           {loading && (
             <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${color}20` }}>
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: `${color}10` }}>
                 <Loader2 size={16} className="animate-spin" style={{ color }} />
               </div>
-              <div className="bg-[#1a1f2e] p-3 rounded-xl rounded-tl-none border border-[#2d3548]">
+              <div className="bg-white p-3 rounded-xl rounded-tl-none border border-gray-200 shadow-sm">
                 <div className="flex gap-1">
-                  <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></span>
-                  <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay:'150ms'}}></span>
-                  <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay:'300ms'}}></span>
+                  <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></span>
+                  <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{animationDelay:'150ms'}}></span>
+                  <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{animationDelay:'300ms'}}></span>
                 </div>
               </div>
             </div>
@@ -236,22 +238,22 @@ export default function ChatPage({ agentType }) {
         </div>
 
         {/* Input */}
-        <div className="p-4 border-t border-[#2d3548]">
+        <div className="p-4 border-t border-gray-200 bg-white">
           <div className="flex items-center gap-3">
             <input
               type="text" value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
               placeholder={`向${selectedAgent?.name || '智能体'}提问...`}
-              className="flex-1 py-3 px-4 bg-[#1a1f2e] border border-[#2d3548] rounded-xl text-white placeholder-gray-600 focus:border-amber-500 focus:outline-none text-sm"
+              className="flex-1 py-3 px-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:border-[#513CC8] focus:ring-2 focus:ring-[#513CC8]/10 focus:outline-none text-sm"
               disabled={loading}
             />
             <button onClick={handleSend} disabled={loading || !input.trim()}
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-white transition hover:scale-110 disabled:opacity-30"
-              style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}>
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-white transition hover:shadow-lg disabled:opacity-30"
+              style={{ background: color }}>
               <Send size={18} />
             </button>
           </div>
-          <p className="text-[10px] text-gray-600 mt-2 text-center">
+          <p className="text-[10px] text-gray-400 mt-2 text-center">
             Hermes Agent · 数据来自Baostock/东方财富/新浪 · 所有结果需经独立验证
           </p>
         </div>
