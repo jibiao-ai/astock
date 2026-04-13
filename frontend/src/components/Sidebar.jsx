@@ -2,7 +2,7 @@ import useStore from '../store/useStore'
 import { 
   LayoutDashboard, TrendingUp, Brain, MessageSquare, Stethoscope, 
   Crown, BarChart3, Settings, Users, Shield, ChevronLeft, ChevronRight,
-  Activity, Zap, Bot, Database, FileText
+  Activity, Zap, Bot, Database, FileText, LogOut
 } from 'lucide-react'
 
 const menuItems = [
@@ -26,19 +26,23 @@ export default function Sidebar() {
   const groups = [...new Set(menuItems.map(i => i.group))]
 
   return (
-    <div className={`h-full flex flex-col border-r border-[#2d3548] transition-all duration-300 ${sidebarCollapsed ? 'w-16' : 'w-56'}`}
-      style={{ background: '#141820' }}>
+    <div className={`h-full flex flex-col border-r border-gray-200 transition-all duration-300 ${sidebarCollapsed ? 'w-16' : 'w-56'}`}
+      style={{ background: '#FFFFFF' }}>
       
       {/* Logo */}
-      <div className="flex items-center p-4 border-b border-[#2d3548]">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: 'linear-gradient(135deg, #f59e0b, #ef4444)' }}>
-          <TrendingUp size={18} className="text-white" />
+      <div className="flex items-center p-4 border-b border-gray-100">
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ background: '#513CC8' }}>
+          {/* Q + Lightning inline SVG */}
+          <svg width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 5C9.9 5 5 9.9 5 16s4.9 11 11 11c2.4 0 4.7-.8 6.5-2.1l2.6 2.6c.4.4 1.1.4 1.6 0 .4-.4.4-1.1 0-1.6l-2.6-2.6C25.2 21.5 27 18.9 27 16c0-6.1-4.9-11-11-11z" fill="none" stroke="white" strokeWidth="2.2"/>
+            <path d="M18 10l-4 6.5h3l-1 5.5 4.5-7h-3l1-5z" fill="white"/>
+          </svg>
         </div>
         {!sidebarCollapsed && (
           <div className="ml-3 overflow-hidden">
-            <h1 className="text-sm font-bold gradient-text whitespace-nowrap">龙策 QuantMind</h1>
-            <p className="text-[10px] text-gray-500 whitespace-nowrap">AI量化平台</p>
+            <h1 className="text-sm font-bold whitespace-nowrap" style={{ color: '#513CC8' }}>QuantMind</h1>
+            <p className="text-[10px] text-gray-400 whitespace-nowrap">AI量化平台</p>
           </div>
         )}
       </div>
@@ -48,7 +52,7 @@ export default function Sidebar() {
         {groups.map(group => (
           <div key={group}>
             {!sidebarCollapsed && (
-              <div className="px-4 py-2 text-[10px] text-gray-600 uppercase tracking-wider">{group}</div>
+              <div className="px-4 py-2 text-[10px] text-gray-400 uppercase tracking-wider font-medium">{group}</div>
             )}
             {menuItems.filter(i => i.group === group).map(item => {
               const Icon = item.icon
@@ -57,10 +61,12 @@ export default function Sidebar() {
                 <button key={item.key} onClick={() => setCurrentPage(item.key)}
                   className={`w-full flex items-center px-3 py-2.5 mx-1 rounded-lg transition-all text-sm
                     ${active 
-                      ? 'bg-gradient-to-r from-amber-500/20 to-red-500/10 text-amber-400 border-l-2 border-amber-500' 
-                      : 'text-gray-400 hover:text-white hover:bg-[#1a1f2e]'}`}
+                      ? 'text-[#513CC8] font-medium' 
+                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}
+                  style={active ? { background: '#F0EDFA', borderLeft: '3px solid #513CC8' } : {}}
                   title={item.label}>
-                  <Icon size={18} className={`flex-shrink-0 ${sidebarCollapsed ? 'mx-auto' : ''}`} />
+                  <Icon size={18} className={`flex-shrink-0 ${sidebarCollapsed ? 'mx-auto' : ''}`} 
+                    style={active ? { color: '#513CC8' } : {}} />
                   {!sidebarCollapsed && <span className="ml-3 whitespace-nowrap">{item.label}</span>}
                 </button>
               )
@@ -70,25 +76,26 @@ export default function Sidebar() {
       </div>
 
       {/* Footer */}
-      <div className="border-t border-[#2d3548] p-3">
+      <div className="border-t border-gray-100 p-3">
         {!sidebarCollapsed && user && (
           <div className="flex items-center mb-2 px-2">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-r from-amber-500 to-red-500 flex items-center justify-center text-xs text-white font-bold">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-bold"
+              style={{ background: '#513CC8' }}>
               {user.display_name?.[0] || user.username?.[0] || 'U'}
             </div>
             <div className="ml-2 overflow-hidden">
-              <p className="text-xs text-white truncate">{user.display_name || user.username}</p>
-              <p className="text-[10px] text-gray-500">{user.role === 'admin' ? '管理员' : '用户'}</p>
+              <p className="text-xs text-gray-900 truncate font-medium">{user.display_name || user.username}</p>
+              <p className="text-[10px] text-gray-400">{user.role === 'admin' ? '管理员' : '用户'}</p>
             </div>
           </div>
         )}
         <div className="flex items-center gap-1">
-          <button onClick={toggleSidebar} className="flex-1 flex items-center justify-center p-2 rounded-lg text-gray-500 hover:text-white hover:bg-[#1a1f2e] transition">
+          <button onClick={toggleSidebar} className="flex-1 flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition">
             {sidebarCollapsed ? <ChevronRight size={16}/> : <ChevronLeft size={16}/>}
           </button>
           {!sidebarCollapsed && (
-            <button onClick={logout} className="flex-1 flex items-center justify-center p-2 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition text-xs">
-              退出
+            <button onClick={logout} className="flex-1 flex items-center justify-center p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition text-xs gap-1">
+              <LogOut size={14} /> 退出
             </button>
           )}
         </div>

@@ -4,17 +4,17 @@ import useStore from '../store/useStore'
 import { Crown, ArrowDownUp, TrendingUp, Zap, Lightbulb, Timer, Users, Star, Moon } from 'lucide-react'
 
 const ICONS = { Crown, ArrowDownUp, TrendingUp, Zap, Lightbulb, Timer, Users, Star, Moon }
-const COLORS = ['#ef4444','#f59e0b','#3b82f6','#8b5cf6','#22c55e','#ec4899','#06b6d4','#f97316','#6366f1']
+const COLORS = ['#EF4444','#F59E0B','#3B82F6','#513CC8','#22C55E','#EC4899','#06B6D4','#F97316','#6366F1']
 
 const STRATEGY_DETAILS = {
   dragon_board: {
     factors: ['封板强度(15分)', '量比(15分)', '换手率(10分)', '板块地位(15分)', '连板数(15分)', '资金净流入(10分)', '市场情绪(10分)', '封板时间(10分)', '竞价强度(10分)', '概念热度(10分)', '技术形态(10分)'],
-    threshold: '总分130分，≥90分为强力推荐，70-90分为关注，<70分为观望',
+    threshold: '总分130分，>=90分为强力推荐，70-90分为关注，<70分为观望',
     description: '基于涨停板11维度因子的量化评分系统。数据来源：东方财富涨停板数据、Level2逐笔成交、龙虎榜数据。',
   },
   strong_pullback: {
     factors: ['回踩幅度(20分)', '支撑位有效性(20分)', '缩量程度(15分)', '均线系统(15分)', '游资确认(15分)', '板块强度(15分)', '情绪位置(15分)', '资金回流(15分)', '形态完整(15分)', '连板历史(15分)', '龙虎榜(20分)'],
-    threshold: '总分180分，≥120分为强势回踩买入信号，龙虎榜游资净买入>5000万加分',
+    threshold: '总分180分，>=120分为强势回踩买入信号，龙虎榜游资净买入>5000万加分',
     description: '强势股回踩买入策略。阈值基于历史统计：强势股首次回踩5日线，量缩至峰值50%以下，且有游资席位确认。',
   },
   trend_core: {
@@ -86,10 +86,10 @@ export default function StrategiesPage() {
   const displayStrategies = strategies.length > 0 ? strategies : defaultStrategies
 
   return (
-    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#0f1419' }}>
+    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
       <div>
         <h1 className="text-2xl font-bold gradient-text">量化策略中心</h1>
-        <p className="text-xs text-gray-500 mt-1">9大量化策略 · 基于外部数据分析 · 禁止编造数据</p>
+        <p className="text-xs text-gray-400 mt-1">9大量化策略 · 基于外部数据分析 · 禁止编造数据</p>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -99,40 +99,40 @@ export default function StrategiesPage() {
           const isSelected = selected === s.name
           return (
             <div key={s.name} onClick={() => setSelected(isSelected ? null : s.name)}
-              className={`glass-card p-4 cursor-pointer transition-all hover:scale-[1.02] ${isSelected ? 'ring-1' : ''}`}
-              style={isSelected ? { borderColor: COLORS[i], boxShadow: `0 0 20px ${COLORS[i]}20` } : {}}>
+              className={`glass-card p-4 cursor-pointer transition-all hover:scale-[1.02] ${isSelected ? 'ring-2' : ''}`}
+              style={isSelected ? { borderColor: COLORS[i], ringColor: COLORS[i], boxShadow: `0 4px 20px ${COLORS[i]}15` } : {}}>
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: `${COLORS[i]}20` }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${COLORS[i]}10` }}>
                   <IconComp size={20} style={{ color: COLORS[i] }} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-white">{s.label}</h3>
-                  <p className="text-xs text-gray-500">{s.description}</p>
+                  <h3 className="text-sm font-semibold text-gray-900">{s.label}</h3>
+                  <p className="text-xs text-gray-400">{s.description}</p>
                 </div>
               </div>
               
               {isSelected && detail && (
-                <div className="mt-3 pt-3 border-t border-[#2d3548] space-y-3">
+                <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
                   <div>
-                    <p className="text-xs text-gray-400 mb-2">📊 评分因子:</p>
+                    <p className="text-xs text-gray-500 mb-2">评分因子:</p>
                     <div className="flex flex-wrap gap-1">
                       {detail.factors.map((f, j) => (
-                        <span key={j} className="px-2 py-0.5 rounded text-[10px] bg-[#0f1419] text-gray-300 border border-[#2d3548]">{f}</span>
+                        <span key={j} className="px-2 py-0.5 rounded text-[10px] bg-gray-50 text-gray-600 border border-gray-200">{f}</span>
                       ))}
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">🎯 阈值标准:</p>
-                    <p className="text-xs text-gray-300">{detail.threshold}</p>
+                    <p className="text-xs text-gray-500 mb-1">阈值标准:</p>
+                    <p className="text-xs text-gray-700">{detail.threshold}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">📌 说明:</p>
-                    <p className="text-xs text-gray-300">{detail.description}</p>
+                    <p className="text-xs text-gray-500 mb-1">说明:</p>
+                    <p className="text-xs text-gray-700">{detail.description}</p>
                   </div>
                   <button onClick={(e) => { e.stopPropagation(); setCurrentPage('signals') }}
-                    className="w-full py-2 rounded-lg text-xs font-medium text-white mt-2"
-                    style={{ background: `${COLORS[i]}30`, color: COLORS[i] }}>
-                    查看策略信号 →
+                    className="w-full py-2 rounded-xl text-xs font-medium mt-2 transition hover:shadow-md"
+                    style={{ background: `${COLORS[i]}10`, color: COLORS[i] }}>
+                    查看策略信号 &rarr;
                   </button>
                 </div>
               )}

@@ -8,7 +8,6 @@ export default function DashboardPage() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Generate last 7 trade dates (skip weekends)
   const last7Days = (() => {
     const dates = []
     let d = new Date()
@@ -42,76 +41,78 @@ export default function DashboardPage() {
   const boardLadder = data?.board_ladder || {}
   const stats = data?.stats || {}
 
-  const COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899']
+  const COLORS = ['#EF4444', '#F59E0B', '#22C55E', '#3B82F6', '#513CC8', '#EC4899']
 
   const getScoreColor = (score) => {
-    if (score >= 70) return '#ef4444'
-    if (score >= 50) return '#f59e0b'
-    return '#22c55e'
+    if (score >= 70) return '#EF4444'
+    if (score >= 50) return '#F59E0B'
+    return '#22C55E'
   }
 
+  const tooltipStyle = { background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }
+
   return (
-    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#0f1419' }}>
+    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold gradient-text">A股看板大屏</h1>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-400 mt-1">
             数据来源：东方财富/新浪财经/Baostock · {loading ? '加载中...' : `最后更新 ${new Date().toLocaleTimeString('zh-CN')}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {last7Days.map(d => (
             <button key={d} onClick={() => setDate(d)}
-              className={`px-3 py-1.5 rounded-lg text-xs transition ${
-                date === d ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'text-gray-500 hover:text-white hover:bg-[#1a1f2e]'
-              }`}>
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                date === d ? 'text-white shadow-md' : 'text-gray-500 hover:text-gray-700 bg-white border border-gray-200 hover:border-gray-300'
+              }`}
+              style={date === d ? { background: '#513CC8', boxShadow: '0 2px 8px rgba(81,60,200,0.3)' } : {}}>
               {d.slice(5)}
             </button>
           ))}
           <button onClick={loadData} disabled={loading}
-            className="p-2 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 transition ml-2">
+            className="p-2 rounded-lg text-gray-400 hover:text-[#513CC8] hover:bg-[#F0EDFA] transition ml-2">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {/* Stats Row - Key Metrics */}
+      {/* Stats Row */}
       <div className="grid grid-cols-6 gap-3">
         {[
-          { label: '涨停', value: sentiment.limit_up_count || 0, icon: ArrowUp, color: '#ef4444', suffix: '家' },
-          { label: '跌停', value: sentiment.limit_down_count || 0, icon: ArrowDown, color: '#22c55e', suffix: '家' },
-          { label: '炸板', value: sentiment.broken_count || 0, icon: AlertTriangle, color: '#f59e0b', suffix: '家' },
-          { label: '最高连板', value: sentiment.highest_board || 0, icon: Crown, color: '#8b5cf6', suffix: '板' },
-          { label: '总成交额', value: ((sentiment.total_amount || 0)).toFixed(0), icon: DollarSign, color: '#3b82f6', suffix: '亿' },
+          { label: '涨停', value: sentiment.limit_up_count || 0, icon: ArrowUp, color: '#EF4444', suffix: '家' },
+          { label: '跌停', value: sentiment.limit_down_count || 0, icon: ArrowDown, color: '#22C55E', suffix: '家' },
+          { label: '炸板', value: sentiment.broken_count || 0, icon: AlertTriangle, color: '#F59E0B', suffix: '家' },
+          { label: '最高连板', value: sentiment.highest_board || 0, icon: Crown, color: '#513CC8', suffix: '板' },
+          { label: '总成交额', value: ((sentiment.total_amount || 0)).toFixed(0), icon: DollarSign, color: '#3B82F6', suffix: '亿' },
           { label: '情绪指数', value: (sentiment.score || 0).toFixed(0), icon: Activity, color: getScoreColor(sentiment.score), suffix: '分' },
         ].map((item, i) => (
           <div key={i} className="glass-card p-3 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: `${item.color}15` }}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${item.color}10` }}>
               <item.icon size={20} style={{ color: item.color }} />
             </div>
             <div>
-              <p className="text-xs text-gray-500">{item.label}</p>
-              <p className="text-xl font-bold" style={{ color: item.color }}>{item.value}<span className="text-xs ml-1">{item.suffix}</span></p>
+              <p className="text-xs text-gray-400">{item.label}</p>
+              <p className="text-xl font-bold" style={{ color: item.color }}>{item.value}<span className="text-xs ml-1 font-normal text-gray-400">{item.suffix}</span></p>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Main Grid - Row 1 */}
+      {/* Row 1 */}
       <div className="grid grid-cols-12 gap-3">
-        {/* Sector Heat Map */}
         <div className="col-span-5 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Flame size={16} className="text-amber-400" /> 热力板块</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Flame size={16} style={{ color: '#513CC8' }} /> 热力板块</h3>
           <div className="grid grid-cols-4 gap-1.5">
             {sectors.slice(0, 16).map((s, i) => {
               const intensity = Math.min(Math.abs(s.change_pct) / 4, 1)
               const bg = s.change_pct >= 0
-                ? `rgba(239,68,68,${0.15 + intensity * 0.5})`
-                : `rgba(34,197,94,${0.15 + intensity * 0.5})`
+                ? `rgba(239,68,68,${0.08 + intensity * 0.25})`
+                : `rgba(34,197,94,${0.08 + intensity * 0.25})`
               return (
-                <div key={i} className="heat-cell rounded-lg p-2 text-center" style={{ background: bg }}>
-                  <p className="text-xs font-medium truncate">{s.name}</p>
+                <div key={i} className="heat-cell rounded-lg p-2 text-center border border-transparent hover:border-gray-200" style={{ background: bg }}>
+                  <p className="text-xs font-medium truncate text-gray-700">{s.name}</p>
                   <p className={`text-sm font-bold ${s.change_pct >= 0 ? 'stock-up' : 'stock-down'}`}>
                     {s.change_pct > 0 ? '+' : ''}{s.change_pct?.toFixed(2)}%
                   </p>
@@ -122,54 +123,50 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 5-Day Sentiment Trend */}
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Activity size={16} className="text-blue-400" /> 最近5日情绪走势</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Activity size={16} style={{ color: '#513CC8' }} /> 最近5日情绪走势</h3>
           <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={sentiments.slice(-5)}>
               <defs>
                 <linearGradient id="sentGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#513CC8" stopOpacity={0.2}/>
+                  <stop offset="95%" stopColor="#513CC8" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <XAxis dataKey="trade_date" tick={{fontSize: 10, fill: '#9aa0a6'}} tickFormatter={v => v?.slice(5)} />
-              <YAxis tick={{fontSize: 10, fill: '#9aa0a6'}} domain={[0, 100]} />
-              <Tooltip contentStyle={{background:'#1e2536',border:'1px solid #2d3548',borderRadius:8,fontSize:12}} 
+              <XAxis dataKey="trade_date" tick={{fontSize: 10, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
+              <YAxis tick={{fontSize: 10, fill: '#9CA3AF'}} domain={[0, 100]} />
+              <Tooltip contentStyle={tooltipStyle}
                 formatter={(v, name) => [typeof v === 'number' ? v.toFixed(1) : v, name === 'score' ? '情绪分' : name]} />
-              <Area type="monotone" dataKey="score" stroke="#f59e0b" fill="url(#sentGrad)" strokeWidth={2} name="score" dot={{ fill: '#f59e0b', r: 3 }} />
+              <Area type="monotone" dataKey="score" stroke="#513CC8" fill="url(#sentGrad)" strokeWidth={2} name="score" dot={{ fill: '#513CC8', r: 3 }} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Total Turnover Bar */}
         <div className="col-span-3 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><DollarSign size={16} className="text-green-400" /> 成交额(亿)</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><DollarSign size={16} style={{ color: '#3B82F6' }} /> 成交额(亿)</h3>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={sentiments.slice(-5)}>
-              <XAxis dataKey="trade_date" tick={{fontSize: 10, fill: '#9aa0a6'}} tickFormatter={v => v?.slice(5)} />
-              <YAxis tick={{fontSize: 10, fill: '#9aa0a6'}} />
-              <Tooltip contentStyle={{background:'#1e2536',border:'1px solid #2d3548',borderRadius:8,fontSize:12}}
+              <XAxis dataKey="trade_date" tick={{fontSize: 10, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
+              <YAxis tick={{fontSize: 10, fill: '#9CA3AF'}} />
+              <Tooltip contentStyle={tooltipStyle}
                 formatter={(v) => [typeof v === 'number' ? v.toFixed(0) + '亿' : v, '成交额']} />
-              <Bar dataKey="total_amount" fill="#3b82f6" radius={[4,4,0,0]} name="total_amount" />
+              <Bar dataKey="total_amount" fill="#513CC8" radius={[4,4,0,0]} name="total_amount" opacity={0.85} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Main Grid - Row 2 */}
+      {/* Row 2 */}
       <div className="grid grid-cols-12 gap-3">
-        {/* Limit Up Board / Board Ladder */}
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Crown size={16} className="text-red-400" /> 涨停封板 · 连板天梯</h3>
-          {/* Board Ladder Summary */}
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Crown size={16} className="text-red-500" /> 涨停封板 · 连板天梯</h3>
           {boardLadder.max_board > 0 && (
             <div className="flex items-center gap-1 mb-2 flex-wrap">
               {Array.from({length: boardLadder.max_board}, (_, i) => boardLadder.max_board - i).map(level => {
                 const count = boardLadder.ladder?.[level] || 0
                 if (count === 0) return null
                 return (
-                  <span key={level} className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400">
+                  <span key={level} className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-500 border border-red-100">
                     {level}板: {count}家
                   </span>
                 )
@@ -178,59 +175,57 @@ export default function DashboardPage() {
           )}
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {limitUps.slice(0, 12).map((s, i) => (
-              <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-[#252d3f] transition text-xs">
+              <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition text-xs">
                 <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded bg-red-500/20 text-red-400 flex items-center justify-center text-[10px] font-bold">
+                  <span className="w-5 h-5 rounded bg-red-50 text-red-500 flex items-center justify-center text-[10px] font-bold border border-red-100">
                     {s.board_count}
                   </span>
-                  <span className="text-white font-medium">{s.name}</span>
-                  <span className="text-gray-500">{s.code}</span>
+                  <span className="text-gray-800 font-medium">{s.name}</span>
+                  <span className="text-gray-400">{s.code}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="stock-up font-medium">+{s.change_pct?.toFixed(2)}%</span>
-                  <span className="text-gray-600 text-[10px] max-w-[60px] truncate">{s.concept?.split('+')[0]}</span>
+                  <span className="text-gray-400 text-[10px] max-w-[60px] truncate">{s.concept?.split('+')[0]}</span>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Broken Board */}
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><AlertTriangle size={16} className="text-yellow-400" /> 炸板个股</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><AlertTriangle size={16} className="text-yellow-500" /> 炸板个股</h3>
           <div className="space-y-1 max-h-56 overflow-y-auto">
             {brokens.length > 0 ? brokens.map((s, i) => (
-              <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-[#252d3f] transition text-xs">
+              <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition text-xs">
                 <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 rounded bg-yellow-500/20 text-yellow-400 flex items-center justify-center text-[10px] font-bold">
+                  <span className="w-5 h-5 rounded bg-yellow-50 text-yellow-600 flex items-center justify-center text-[10px] font-bold border border-yellow-100">
                     {s.open_count}
                   </span>
-                  <span className="text-white font-medium">{s.name}</span>
-                  <span className="text-gray-500">{s.code}</span>
+                  <span className="text-gray-800 font-medium">{s.name}</span>
+                  <span className="text-gray-400">{s.code}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="stock-up">开{s.open_count}次</span>
-                  <span className="text-gray-600 text-[10px] truncate">{s.concept?.split('+')[0]}</span>
+                  <span className="text-gray-400 text-[10px] truncate">{s.concept?.split('+')[0]}</span>
                 </div>
               </div>
             )) : (
-              <div className="text-center py-4 text-gray-600 text-xs">暂无炸板数据</div>
+              <div className="text-center py-4 text-gray-400 text-xs">暂无炸板数据</div>
             )}
           </div>
         </div>
 
-        {/* Fund Flow by Sector */}
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><BarChart3 size={16} className="text-purple-400" /> 板块资金净流入(亿)</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><BarChart3 size={16} style={{ color: '#513CC8' }} /> 板块资金净流入(亿)</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={sectors.slice(0, 8)} layout="vertical">
-              <XAxis type="number" tick={{fontSize: 10, fill: '#9aa0a6'}} />
-              <YAxis type="category" dataKey="name" tick={{fontSize: 10, fill: '#9aa0a6'}} width={60} />
-              <Tooltip contentStyle={{background:'#1e2536',border:'1px solid #2d3548',borderRadius:8,fontSize:12}}
+              <XAxis type="number" tick={{fontSize: 10, fill: '#9CA3AF'}} />
+              <YAxis type="category" dataKey="name" tick={{fontSize: 10, fill: '#6B7280'}} width={60} />
+              <Tooltip contentStyle={tooltipStyle}
                 formatter={(v) => [typeof v === 'number' ? v.toFixed(2) + '亿' : v, '净流入']} />
               <Bar dataKey="net_flow" radius={[0,4,4,0]} name="net_flow">
                 {sectors.slice(0, 8).map((s, i) => (
-                  <Cell key={i} fill={s.net_flow >= 0 ? '#ef4444' : '#22c55e'} />
+                  <Cell key={i} fill={s.net_flow >= 0 ? '#EF4444' : '#22C55E'} />
                 ))}
               </Bar>
             </BarChart>
@@ -238,15 +233,14 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Main Grid - Row 3 */}
+      {/* Row 3 */}
       <div className="grid grid-cols-12 gap-3">
-        {/* Dragon Tiger Board */}
         <div className="col-span-6 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Users size={16} className="text-orange-400" /> 龙虎榜游资数据</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Users size={16} className="text-orange-500" /> 龙虎榜游资数据</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-gray-500 border-b border-[#2d3548]">
+                <tr className="text-gray-400 border-b border-gray-100">
                   <th className="text-left p-2">股票</th>
                   <th className="text-left p-2">上榜原因</th>
                   <th className="text-right p-2">买入额(万)</th>
@@ -256,10 +250,10 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {dragons.slice(0, 8).map((d, i) => (
-                  <tr key={i} className="border-b border-[#2d3548]/50 hover:bg-[#252d3f]">
+                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="p-2">
-                      <span className="text-white font-medium">{d.name}</span>
-                      <span className="text-gray-500 ml-1">{d.code}</span>
+                      <span className="text-gray-800 font-medium">{d.name}</span>
+                      <span className="text-gray-400 ml-1">{d.code}</span>
                     </td>
                     <td className="p-2 text-gray-400 max-w-[120px] truncate">{d.reason}</td>
                     <td className="p-2 text-right stock-up">{(d.buy_total/10000)?.toFixed(0)}</td>
@@ -270,16 +264,15 @@ export default function DashboardPage() {
                   </tr>
                 ))}
                 {dragons.length === 0 && (
-                  <tr><td colSpan={5} className="text-center p-4 text-gray-600">暂无龙虎榜数据</td></tr>
+                  <tr><td colSpan={5} className="text-center p-4 text-gray-400">暂无龙虎榜数据</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Up/Down Distribution */}
         <div className="col-span-3 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Zap size={16} className="text-cyan-400" /> 涨跌分布</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Zap size={16} style={{ color: '#513CC8' }} /> 涨跌分布</h3>
           <ResponsiveContainer width="100%" height={150}>
             <PieChart>
               <Pie data={[
@@ -287,30 +280,29 @@ export default function DashboardPage() {
                 { name: '下跌', value: sentiment.down_count || 0 },
                 { name: '平盘', value: sentiment.flat_count || 0 },
               ]} cx="50%" cy="50%" innerRadius={35} outerRadius={55} dataKey="value">
-                <Cell fill="#ef4444" />
-                <Cell fill="#22c55e" />
-                <Cell fill="#6b7280" />
+                <Cell fill="#EF4444" />
+                <Cell fill="#22C55E" />
+                <Cell fill="#D1D5DB" />
               </Pie>
-              <Tooltip contentStyle={{background:'#1e2536',border:'1px solid #2d3548',borderRadius:8,fontSize:12}} />
+              <Tooltip contentStyle={tooltipStyle} />
             </PieChart>
           </ResponsiveContainer>
           <div className="flex justify-center gap-4 text-[10px]">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span>上涨 {sentiment.up_count || 0}</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>下跌 {sentiment.down_count || 0}</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500"></span>平盘 {sentiment.flat_count || 0}</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span>平盘 {sentiment.flat_count || 0}</span>
           </div>
         </div>
 
-        {/* Limit Up/Down 5-Day Trend */}
         <div className="col-span-3 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3">涨跌停趋势</h3>
+          <h3 className="text-sm font-semibold mb-3 text-gray-800">涨跌停趋势</h3>
           <ResponsiveContainer width="100%" height={150}>
             <BarChart data={sentiments.slice(-5)}>
-              <XAxis dataKey="trade_date" tick={{fontSize: 9, fill: '#9aa0a6'}} tickFormatter={v => v?.slice(5)} />
-              <YAxis tick={{fontSize: 9, fill: '#9aa0a6'}} />
-              <Tooltip contentStyle={{background:'#1e2536',border:'1px solid #2d3548',borderRadius:8,fontSize:11}} />
-              <Bar dataKey="limit_up_count" fill="#ef4444" radius={[2,2,0,0]} name="涨停" />
-              <Bar dataKey="limit_down_count" fill="#22c55e" radius={[2,2,0,0]} name="跌停" />
+              <XAxis dataKey="trade_date" tick={{fontSize: 9, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
+              <YAxis tick={{fontSize: 9, fill: '#9CA3AF'}} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="limit_up_count" fill="#EF4444" radius={[2,2,0,0]} name="涨停" />
+              <Bar dataKey="limit_down_count" fill="#22C55E" radius={[2,2,0,0]} name="跌停" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -319,14 +311,14 @@ export default function DashboardPage() {
       {/* Bottom Stats */}
       <div className="grid grid-cols-5 gap-3">
         {[
-          { label: 'AI智能体', value: stats.agents || 0, color: '#8b5cf6' },
-          { label: '策略信号', value: stats.strategy_signals || 0, color: '#f59e0b' },
-          { label: '行情数据', value: stats.stock_quotes || 0, color: '#3b82f6' },
-          { label: '审计日志', value: stats.audit_logs || 0, color: '#22c55e' },
-          { label: '用户数', value: stats.users || 0, color: '#ec4899' },
+          { label: 'AI智能体', value: stats.agents || 0, color: '#513CC8' },
+          { label: '策略信号', value: stats.strategy_signals || 0, color: '#F59E0B' },
+          { label: '行情数据', value: stats.stock_quotes || 0, color: '#3B82F6' },
+          { label: '审计日志', value: stats.audit_logs || 0, color: '#22C55E' },
+          { label: '用户数', value: stats.users || 0, color: '#EC4899' },
         ].map((item, i) => (
           <div key={i} className="glass-card p-3 text-center">
-            <p className="text-xs text-gray-500 mb-1">{item.label}</p>
+            <p className="text-xs text-gray-400 mb-1">{item.label}</p>
             <p className="text-lg font-bold" style={{ color: item.color }}>{item.value}</p>
           </div>
         ))}
