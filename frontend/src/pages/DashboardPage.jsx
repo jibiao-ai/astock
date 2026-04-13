@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getDashboard, getConceptHeat, getLimitUpDownDetails, getSectorFundFlow } from '../services/api'
-import { BarChart3, TrendingUp, TrendingDown, Activity, Flame, Crown, AlertTriangle, DollarSign, Users, Zap, ArrowUp, ArrowDown, RefreshCw, Lightbulb, Eye } from 'lucide-react'
+import { BarChart3, TrendingUp, TrendingDown, Activity, Flame, Crown, AlertTriangle, DollarSign, Users, Zap, ArrowUp, ArrowDown, RefreshCw, Lightbulb, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid } from 'recharts'
 
 export default function DashboardPage() {
@@ -14,6 +14,8 @@ export default function DashboardPage() {
   const [conceptFlows, setConceptFlows] = useState([])
   const [flowTab, setFlowTab] = useState('sector')
   const [limitTab, setLimitTab] = useState('up')
+  const [limitPage, setLimitPage] = useState(1)
+  const [flowPage, setFlowPage] = useState(1)
 
   const last7Days = (() => {
     const dates = []
@@ -77,6 +79,12 @@ export default function DashboardPage() {
 
   const currentFlows = flowTab === 'sector' ? sectorFlows : conceptFlows
   const currentLimitStocks = limitTab === 'up' ? limitUpStocks : limitDownStocks
+
+  const PAGE_SIZE = 12
+  const limitTotalPages = Math.max(1, Math.ceil(currentLimitStocks.length / PAGE_SIZE))
+  const limitPagedStocks = currentLimitStocks.slice((limitPage - 1) * PAGE_SIZE, limitPage * PAGE_SIZE)
+  const flowTotalPages = Math.max(1, Math.ceil(currentFlows.length / PAGE_SIZE))
+  const flowPagedItems = currentFlows.slice((flowPage - 1) * PAGE_SIZE, flowPage * PAGE_SIZE)
 
   return (
     <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
@@ -205,18 +213,18 @@ export default function DashboardPage() {
 
       {/* Row 2: Limit-up/down details + Fund Flow */}
       <div className="grid grid-cols-12 gap-3">
-        {/* Real-time Limit-up / Limit-down stocks */}
+        {/* Daily Limit-up / Limit-down stocks with pagination */}
         <div className="col-span-6 glass-card p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-gray-800">
-              <Eye size={16} style={{ color: '#EF4444' }} /> 实时涨跌停个股
+              <Eye size={16} style={{ color: '#EF4444' }} /> 当日涨跌停个股
             </h3>
             <div className="flex gap-1">
-              <button onClick={() => setLimitTab('up')}
+              <button onClick={() => { setLimitTab('up'); setLimitPage(1) }}
                 className={`px-3 py-1 rounded-lg text-xs font-medium transition ${limitTab === 'up' ? 'text-white bg-red-500' : 'text-gray-500 bg-gray-50 border border-gray-200'}`}>
                 涨停 {limitUpStocks.length}
               </button>
-              <button onClick={() => setLimitTab('down')}
+              <button onClick={() => { setLimitTab('down'); setLimitPage(1) }}
                 className={`px-3 py-1 rounded-lg text-xs font-medium transition ${limitTab === 'down' ? 'text-white bg-green-500' : 'text-gray-500 bg-gray-50 border border-gray-200'}`}>
                 跌停 {limitDownStocks.length}
               </button>
@@ -235,7 +243,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {currentLimitStocks.slice(0, 15).map((s, i) => (
+                {limitPagedStocks.map((s, i) => (
                   <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
                     <td className="p-2">
                       <span className="text-gray-800 font-medium">{s.name}</span>
@@ -262,26 +270,49 @@ export default function DashboardPage() {
                   </tr>
                 ))}
                 {currentLimitStocks.length === 0 && (
-                  <tr><td colSpan={6} className="text-center p-4 text-gray-400">暂无实时数据（非交易时段）</td></tr>
+                  <tr><td colSpan={6} className="text-center p-4 text-gray-400">暂无当日数据（非交易时段）</td></tr>
                 )}
               </tbody>
             </table>
           </div>
+          {/* Pagination for limit stocks */}
+          {currentLimitStocks.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+              <span className="text-[11px] text-gray-400">共 {currentLimitStocks.length} 只 · 第 {limitPage}/{limitTotalPages} 页</span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setLimitPage(p => Math.max(1, p - 1))} disabled={limitPage <= 1}
+                  className={`p-1.5 rounded-lg transition ${limitPage <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-[#513CC8] hover:bg-[#F0EDFA]'}`}>
+                  <ChevronLeft size={14} />
+                </button>
+                {Array.from({ length: limitTotalPages }, (_, i) => i + 1).map(p => (
+                  <button key={p} onClick={() => setLimitPage(p)}
+                    className={`w-6 h-6 rounded-lg text-[11px] font-medium transition ${p === limitPage ? 'text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                    style={p === limitPage ? { background: '#513CC8' } : {}}>
+                    {p}
+                  </button>
+                ))}
+                <button onClick={() => setLimitPage(p => Math.min(limitTotalPages, p + 1))} disabled={limitPage >= limitTotalPages}
+                  className={`p-1.5 rounded-lg transition ${limitPage >= limitTotalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-[#513CC8] hover:bg-[#F0EDFA]'}`}>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Sector/Concept Fund Flow with amounts */}
+        {/* Sector/Concept Fund Flow with amounts + pagination */}
         <div className="col-span-6 glass-card p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-gray-800">
               <DollarSign size={16} style={{ color: '#3B82F6' }} /> 资金流向(实时金额)
             </h3>
             <div className="flex gap-1">
-              <button onClick={() => setFlowTab('sector')}
+              <button onClick={() => { setFlowTab('sector'); setFlowPage(1) }}
                 className={`px-3 py-1 rounded-lg text-xs font-medium transition ${flowTab === 'sector' ? 'text-white' : 'text-gray-500 bg-gray-50 border border-gray-200'}`}
                 style={flowTab === 'sector' ? { background: '#513CC8' } : {}}>
                 板块
               </button>
-              <button onClick={() => setFlowTab('concept')}
+              <button onClick={() => { setFlowTab('concept'); setFlowPage(1) }}
                 className={`px-3 py-1 rounded-lg text-xs font-medium transition ${flowTab === 'concept' ? 'text-white' : 'text-gray-500 bg-gray-50 border border-gray-200'}`}
                 style={flowTab === 'concept' ? { background: '#513CC8' } : {}}>
                 概念
@@ -301,7 +332,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {currentFlows.slice(0, 12).map((f, i) => (
+                {flowPagedItems.map((f, i) => (
                   <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
                     <td className="p-2 font-medium text-gray-800">{f.name}</td>
                     <td className={`p-2 text-right font-medium ${(f.change_pct || 0) >= 0 ? 'stock-up' : 'stock-down'}`}>
@@ -321,6 +352,29 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+          {/* Pagination for fund flow */}
+          {currentFlows.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+              <span className="text-[11px] text-gray-400">共 {currentFlows.length} 条 · 第 {flowPage}/{flowTotalPages} 页</span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setFlowPage(p => Math.max(1, p - 1))} disabled={flowPage <= 1}
+                  className={`p-1.5 rounded-lg transition ${flowPage <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-[#513CC8] hover:bg-[#F0EDFA]'}`}>
+                  <ChevronLeft size={14} />
+                </button>
+                {Array.from({ length: flowTotalPages }, (_, i) => i + 1).map(p => (
+                  <button key={p} onClick={() => setFlowPage(p)}
+                    className={`w-6 h-6 rounded-lg text-[11px] font-medium transition ${p === flowPage ? 'text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                    style={p === flowPage ? { background: '#513CC8' } : {}}>
+                    {p}
+                  </button>
+                ))}
+                <button onClick={() => setFlowPage(p => Math.min(flowTotalPages, p + 1))} disabled={flowPage >= flowTotalPages}
+                  className={`p-1.5 rounded-lg transition ${flowPage >= flowTotalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-[#513CC8] hover:bg-[#F0EDFA]'}`}>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
