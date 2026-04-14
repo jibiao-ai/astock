@@ -913,13 +913,23 @@ func fetchUpDownFromIndices() (int, int, int) {
 
 // GetDragonTigerHotMoney returns dragon-tiger (龙虎榜) data grouped by hot money trader (游资)
 // Data comes from Eastmoney datacenter API - RPT_OPERATEDEPT_TRADE (seat-level trades)
+// Supports pagination: page, page_size (default 5)
 func (h *Handler) GetDragonTigerHotMoney(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "5"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 5
+	}
+
 	// Known hot money trader seats mapping
 	hotMoneySeats := getHotMoneySeatsMap()
 
 	// Try to get data for most recent trading days (today first, then backwards)
 	now := time.Now()
-	var result []gin.H
+	var allTraders []gin.H
 	var tradeDate string
 
 	for dayOffset := 0; dayOffset <= 5; dayOffset++ {
@@ -929,24 +939,58 @@ func (h *Handler) GetDragonTigerHotMoney(c *gin.Context) {
 		}
 		dateStr := d.Format("2006-01-02")
 
-		// Try fetching stock-level dragon-tiger data for this date
-		stocks := fetchDragonTigerDetailsByDate(dateStr)
+		// Try fetching stock-level dragon-tiger data for this date with retry
+		var stocks []map[string]interface{}
+		for attempt := 1; attempt <= 3; attempt++ {
+			stocks = fetchDragonTigerDetailsByDate(dateStr)
+			if len(stocks) > 0 {
+				break
+			}
+			if attempt < 3 {
+				log.Printf("[DragonTiger] Attempt %d for date %s returned no data, retrying...", attempt, dateStr)
+				time.Sleep(time.Duration(attempt*500) * time.Millisecond)
+			}
+		}
 		if len(stocks) > 0 {
 			tradeDate = dateStr
-			// Fetch seat-level data and group by hot money trader
-			result = fetchAndGroupByHotMoney(dateStr, hotMoneySeats)
+			// Fetch seat-level data and group by hot money trader with retry
+			for attempt := 1; attempt <= 3; attempt++ {
+				allTraders = fetchAndGroupByHotMoney(dateStr, hotMoneySeats)
+				if len(allTraders) > 0 {
+					break
+				}
+				if attempt < 3 {
+					log.Printf("[DragonTiger] Hot money grouping attempt %d returned no data, retrying...", attempt)
+					time.Sleep(time.Duration(attempt*500) * time.Millisecond)
+				}
+			}
 			break
 		}
 	}
 
-	if result == nil {
-		result = []gin.H{}
+	if allTraders == nil {
+		allTraders = []gin.H{}
 	}
 
+	// Paginate
+	total := len(allTraders)
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	pagedTraders := allTraders[start:end]
+
 	response.Success(c, gin.H{
-		"traders":    result,
-		"count":      len(result),
-		"trade_date": tradeDate,
+		"traders":     pagedTraders,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": (total + pageSize - 1) / pageSize,
+		"trade_date":  tradeDate,
 	})
 }
 
@@ -956,7 +1000,7 @@ func fetchDragonTigerDetailsByDate(date string) []map[string]interface{} {
 		"https://datacenter-web.eastmoney.com/api/data/v1/get?sortColumns=SECURITY_CODE&sortTypes=1&pageSize=5&pageNumber=1&reportName=RPT_DAILYBILLBOARD_DETAILSNEW&columns=SECURITY_CODE,SECURITY_NAME_ABBR&filter=(TRADE_DATE='%s')",
 		date)
 
-	data, err := fetchDatacenterAPI(url)
+	data, err := fetchDatacenterAPIWithRetry(url, 3)
 	if err != nil {
 		return nil
 	}
@@ -999,7 +1043,7 @@ func fetchAndGroupByHotMoney(date string, hotMoneySeats map[string]string) []gin
 			"https://datacenter-web.eastmoney.com/api/data/v1/get?sortColumns=BUY_AMT&sortTypes=-1&pageSize=200&pageNumber=%d&reportName=RPT_OPERATEDEPT_TRADE&columns=OPERATEDEPT_NAME,SECURITY_CODE,SECURITY_NAME_ABBR,BUY_AMT,SELL_AMT,NET,TRADE_DIRECTION,CHANGE_RATE,EXPLANATION&filter=(TRADE_DATE='%s')",
 			page, date)
 
-		data, err := fetchDatacenterAPI(url)
+		data, err := fetchDatacenterAPIWithRetry(url, 3)
 		if err != nil {
 			break
 		}
@@ -1118,54 +1162,103 @@ func matchHotMoneyTrader(seatName string, seats map[string]string) string {
 }
 
 // getHotMoneySeatsMap returns the mapping of well-known hot money trader seats
+// Comprehensive list covering 20+ famous hot money traders (游资) active in A-share market
 func getHotMoneySeatsMap() map[string]string {
 	return map[string]string{
-		// 赵老哥 (Zhao Laoge) - known as the champion of hot money
-		"华泰证券上海武定路":    "赵老哥",
-		"华泰证券上海共和新路":   "赵老哥",
-		// 陈晓群 / 孙哥
-		"中信证券上海溧阳路":    "孙哥(陈晓群)",
-		"中信证券杭州四季路":    "孙哥(陈晓群)",
-		// 成都系
-		"华西证券成都高新":     "成都帮",
-		"国盛证券成都二环路":    "成都帮",
-		"华鑫证券成都二环路":    "成都帮",
-		"中信证券成都交子大道":   "成都帮",
-		// 桑田路 (SangTianLu)
-		"申万宏源上海桑田路":    "桑田路",
-		// 作手新一 (ZuoShou XinYi)
-		"国泰海通上海江苏路":    "作手新一",
-		"国泰君安上海江苏路":    "作手新一",
-		// 著名游资 - 炒股养家
-		"国信证券深圳泰然九路":   "炒股养家",
-		// 章盟主
-		"中信证券杭州延安路":    "章盟主",
-		"中信建投杭州延安路":    "章盟主",
-		// 方新侠
-		"华鑫证券上海茅台路":    "方新侠",
-		"中信证券上海嘉里中心":   "方新侠",
-		// 小鳄鱼
-		"东方财富拉萨团结路":    "拉萨帮",
-		"东方财富拉萨东环路":    "拉萨帮",
-		"东方财富拉萨东环路第二":  "拉萨帮",
-		"东方财富拉萨金融城南环路": "拉萨帮",
-		"东方财富拉萨金珠西路":   "拉萨帮",
-		// 佛山无影脚
-		"国泰海通深圳益田路":    "佛山无影脚",
-		"国泰君安深圳益田路":    "佛山无影脚",
-		// 量化、机构
-		"沪股通专用":        "沪股通",
-		"深股通专用":        "深股通",
-		"机构专用":         "机构",
-		// 金田路
-		"中信建投深圳金田路":    "金田路",
-		// 欢乐海岸
-		"华泰证券深圳益田路荣超商务": "欢乐海岸",
-		"招商证券深圳蛇口":     "欢乐海岸",
-		// 著名营业部
-		"国泰海通武汉紫阳东路":   "武汉帮",
-		"华泰证券南京中华路":    "南京帮",
-		"中国银河绍兴营业部":    "绍兴帮",
+		// ========== 顶级游资 ==========
+		// 赵老哥 - 8年一万倍传奇，A股最知名游资之一
+		"华泰证券上海武定路":       "赵老哥",
+		"华泰证券上海共和新路":      "赵老哥",
+		// 陈晓群(孙哥) - 超级大户，擅长大资金运作
+		"中信证券上海溧阳路":       "陈晓群(孙哥)",
+		"中信证券杭州四季路":       "陈晓群(孙哥)",
+		// 炒股养家 - 游资教父级人物
+		"国信证券深圳泰然九路":      "炒股养家",
+		"国信证券泰然九路":        "炒股养家",
+		// 桑田路 - 知名一线游资
+		"申万宏源上海桑田路":       "桑田路",
+		"申万宏源桑田路":         "桑田路",
+		// 作手新一 - 涨停板战法代表
+		"国泰海通上海江苏路":       "作手新一",
+		"国泰君安上海江苏路":       "作手新一",
+		"国泰海通证券上海江苏路":     "作手新一",
+		// 章盟主 - 杭州系游资代表
+		"中信证券杭州延安路":       "章盟主",
+		"中信建投杭州延安路":       "章盟主",
+		"中信证券股份有限公司杭州延安路": "章盟主",
+		// 方新侠 - 上海系知名游资
+		"华鑫证券上海茅台路":       "方新侠",
+		"中信证券上海嘉里中心":      "方新侠",
+		"华鑫证券上海分公司":       "方新侠",
+		// 佛山无影脚 - 深圳系游资代表
+		"国泰海通深圳益田路":       "佛山无影脚",
+		"国泰君安深圳益田路":       "佛山无影脚",
+		"国泰海通证券深圳益田路":     "佛山无影脚",
+
+		// ========== 知名团队/帮派 ==========
+		// 成都帮(成都系) - 西南游资团体
+		"华西证券成都高新":        "成都帮",
+		"国盛证券成都二环路":       "成都帮",
+		"华鑫证券成都二环路":       "成都帮",
+		"中信证券成都交子大道":      "成都帮",
+		"华西证券成都":          "成都帮",
+		"国金证券成都":          "成都帮",
+		// 拉萨帮(小鳄鱼) - 东方财富系拉萨席位
+		"东方财富拉萨团结路":       "拉萨帮",
+		"东方财富拉萨东环路":       "拉萨帮",
+		"东方财富拉萨东环路第二":     "拉萨帮",
+		"东方财富拉萨金融城南环路":    "拉萨帮",
+		"东方财富拉萨金珠西路":      "拉萨帮",
+		"东方财富证券拉萨":        "拉萨帮",
+		// 武汉帮
+		"国泰海通武汉紫阳东路":      "武汉帮",
+		"国泰君安武汉紫阳东路":      "武汉帮",
+		// 南京帮
+		"华泰证券南京中华路":       "南京帮",
+		"华泰证券股份有限公司南京中华路": "南京帮",
+		// 绍兴帮 - 浙江系
+		"中国银河绍兴":          "绍兴帮",
+		"财通证券绍兴":          "绍兴帮",
+
+		// ========== 其他著名游资 ==========
+		// 欢乐海岸 - 深圳知名游资
+		"华泰证券深圳益田路荣超商务":   "欢乐海岸",
+		"招商证券深圳蛇口":        "欢乐海岸",
+		"华泰证券深圳益田路":       "欢乐海岸",
+		// 金田路 - 深圳游资
+		"中信建投深圳金田路":       "金田路",
+		"中信建投证券深圳金田路":     "金田路",
+		// 涅槃重生 - 上海知名游资
+		"华泰证券上海奉贤区碧秀路":    "涅槃重生",
+		"华泰证券上海碧秀路":       "涅槃重生",
+		// 小沈阳(锦州帮)
+		"华泰证券锦州":          "小沈阳",
+		"华泰证券股份有限公司锦州解放路": "小沈阳",
+		// 职业炒手
+		"中信建投北京朝阳门北大街":    "职业炒手",
+		"中信建投证券北京朝阳门":     "职业炒手",
+		// 深圳帮/瑞银
+		"瑞银证券上海花园石桥路":     "深圳帮(瑞银)",
+		// 上海帮
+		"光大证券上海番禺路":       "上海帮",
+		"光大证券股份有限公司上海番禺路": "上海帮",
+		// 北京帮
+		"中信证券北京总部":        "北京帮",
+		"中信建投北京三里河路":      "北京帮",
+		// 温州帮
+		"华鑫证券温州":          "温州帮",
+		"中银国际温州":          "温州帮",
+		"银河证券温州":          "温州帮",
+		// 宁波桶 - 宁波解放南路系
+		"银河证券宁波解放南路":      "宁波桶",
+		"华鑫证券宁波":          "宁波桶",
+		// 著名散户/自然人
+		"自然人":             "自然人",
+
+		// ========== 机构/北向资金 ==========
+		"沪股通专用":           "沪股通",
+		"深股通专用":           "深股通",
+		"机构专用":            "机构",
 	}
 }
 
@@ -1321,6 +1414,26 @@ func fetchDatacenterAPI(url string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	return io.ReadAll(resp.Body)
+}
+
+// fetchDatacenterAPIWithRetry fetches datacenter API with retry
+func fetchDatacenterAPIWithRetry(url string, maxRetries int) ([]byte, error) {
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		data, err := fetchDatacenterAPI(url)
+		if err == nil && len(data) > 0 {
+			return data, nil
+		}
+		lastErr = err
+		if lastErr == nil {
+			lastErr = fmt.Errorf("empty response")
+		}
+		if attempt < maxRetries {
+			log.Printf("[DatacenterAPI] Attempt %d failed: %v, retrying...", attempt, lastErr)
+			time.Sleep(time.Duration(attempt*500) * time.Millisecond)
+		}
+	}
+	return nil, fmt.Errorf("datacenter API failed after %d retries: %v", maxRetries, lastErr)
 }
 
 // fetchBatchQuotes fetches multiple stock quotes from Eastmoney
