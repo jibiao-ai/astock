@@ -717,6 +717,18 @@ func (h *Handler) GetStrategyList(c *gin.Context) {
 
 // ==================== Users ====================
 
+// UserRequest is used for Create/Update user requests.
+// The User model has Password json:"-" which prevents JSON binding,
+// so we need a dedicated request struct that CAN bind the password field.
+type UserRequest struct {
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	IsActive    *bool  `json:"is_active"` // pointer to distinguish false from absent
+}
+
 func (h *Handler) ListUsers(c *gin.Context) {
 	var users []model.User
 	repository.DB.Find(&users)
@@ -724,14 +736,57 @@ func (h *Handler) ListUsers(c *gin.Context) {
 }
 
 func (h *Handler) CreateUser(c *gin.Context) {
-	var user model.User
-	if err := c.ShouldBindJSON(&user); err != nil {
+	var req UserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
 	}
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-	user.Password = string(hashedPassword)
-	repository.DB.Create(&user)
+
+	// Validate required fields
+	if req.Username == "" {
+		response.BadRequest(c, "用户名不能为空")
+		return
+	}
+	if req.Password == "" {
+		response.BadRequest(c, "密码不能为空")
+		return
+	}
+
+	// Check for duplicate username
+	var existing model.User
+	if err := repository.DB.Where("username = ?", req.Username).First(&existing).Error; err == nil {
+		response.BadRequest(c, "用户名已存在")
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		response.InternalError(c, "密码加密失败")
+		return
+	}
+
+	// Default is_active to true if not specified
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
+
+	user := model.User{
+		Username:    req.Username,
+		Password:    string(hashedPassword),
+		DisplayName: req.DisplayName,
+		Email:       req.Email,
+		Role:        req.Role,
+		IsActive:    isActive,
+	}
+	if user.Role == "" {
+		user.Role = "user"
+	}
+
+	if err := repository.DB.Create(&user).Error; err != nil {
+		response.InternalError(c, "创建用户失败: "+err.Error())
+		return
+	}
 	response.Success(c, user)
 }
 
@@ -742,7 +797,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		response.BadRequest(c, "用户不存在")
 		return
 	}
-	var req model.User
+	var req UserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "参数错误")
 		return
@@ -751,13 +806,22 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		"display_name": req.DisplayName,
 		"email":        req.Email,
 		"role":         req.Role,
-		"is_active":    req.IsActive,
+	}
+	// Only update is_active if explicitly provided
+	if req.IsActive != nil {
+		updates["is_active"] = *req.IsActive
 	}
 	if req.Password != "" {
-		hp, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		hp, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			response.InternalError(c, "密码加密失败")
+			return
+		}
 		updates["password"] = string(hp)
 	}
 	repository.DB.Model(&user).Updates(updates)
+	// Reload user to return fresh data
+	repository.DB.First(&user, id)
 	response.Success(c, user)
 }
 

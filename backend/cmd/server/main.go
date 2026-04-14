@@ -112,15 +112,15 @@ func main() {
 		auth.GET("/strategies", h.GetStrategyList)
 		auth.GET("/strategy-signals", h.GetStrategySignals)
 
-		// Admin routes
+		// Admin routes – must use `admin.` not `auth.` so AdminMiddleware is applied
 		admin := auth.Group("")
 		admin.Use(middleware.AdminMiddleware())
 		{
-			auth.GET("/users", h.ListUsers)
-			auth.POST("/users", h.CreateUser)
-			auth.PUT("/users/:id", h.UpdateUser)
-			auth.DELETE("/users/:id", h.DeleteUser)
-			auth.GET("/audit-logs", h.GetAuditLogs)
+			admin.GET("/users", h.ListUsers)
+			admin.POST("/users", h.CreateUser)
+			admin.PUT("/users/:id", h.UpdateUser)
+			admin.DELETE("/users/:id", h.DeleteUser)
+			admin.GET("/audit-logs", h.GetAuditLogs)
 		}
 	}
 

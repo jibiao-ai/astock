@@ -139,6 +139,18 @@ export default function UsersPage() {
                   <option value="admin">管理员</option>
                 </select>
               </div>
+              {editing && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-500">账户状态</label>
+                  <button type="button" onClick={() => setForm({...form, is_active: !form.is_active})}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${form.is_active ? 'bg-green-500' : 'bg-gray-300'}`}>
+                    <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${form.is_active ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                  </button>
+                  <span className={`text-xs font-medium ${form.is_active ? 'text-green-600' : 'text-red-500'}`}>
+                    {form.is_active ? '正常' : '禁用'}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-end gap-3 pt-2">
                 <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-xl text-sm text-gray-500 bg-gray-50 border border-gray-200">取消</button>
                 <button onClick={handleSave} className="px-4 py-2 rounded-xl text-sm text-white font-medium" style={{ background: '#513CC8' }}>保存</button>
