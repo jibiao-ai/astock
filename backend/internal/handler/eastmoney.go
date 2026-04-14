@@ -1620,3 +1620,545 @@ func ifStr(a, b string) string {
 	}
 	return b
 }
+
+// ==================== Market Hot List (市场热榜) ====================
+
+// GetMarketHotList returns the market hot stock ranking from 10jqka (同花顺) API
+// Supports type=hour (1小时) or type=day (24小时/全天)
+// Returns stock name, code, change%, concepts, heat value, market cap
+// Supports pagination with page & page_size params, sorting by sort_field & sort_order
+func (h *Handler) GetMarketHotList(c *gin.Context) {
+	listType := c.DefaultQuery("type", "hour") // "hour" or "day"
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	sortField := c.DefaultQuery("sort_field", "rank")   // rank, heat, change_pct, market_cap
+	sortOrder := c.DefaultQuery("sort_order", "asc")     // asc or desc
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// Fetch hot list from 10jqka with retry
+	var hotStocks []gin.H
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		stocks, err := fetchHotListFrom10jqka(listType)
+		if err == nil && len(stocks) > 0 {
+			hotStocks = stocks
+			break
+		}
+		lastErr = err
+		if attempt < 3 {
+			log.Printf("[HotList] Attempt %d failed, retrying...", attempt)
+			time.Sleep(time.Duration(attempt*500) * time.Millisecond)
+		}
+	}
+
+	if hotStocks == nil {
+		// Fallback to Eastmoney guba popularity API
+		log.Println("[HotList] 10jqka failed, falling back to Eastmoney guba API")
+		for attempt := 1; attempt <= 3; attempt++ {
+			stocks, err := fetchHotListFromGuba()
+			if err == nil && len(stocks) > 0 {
+				hotStocks = stocks
+				break
+			}
+			lastErr = err
+			if attempt < 3 {
+				time.Sleep(time.Duration(attempt*500) * time.Millisecond)
+			}
+		}
+	}
+
+	if hotStocks == nil {
+		hotStocks = []gin.H{}
+		if lastErr != nil {
+			log.Printf("[HotList] All sources failed: %v", lastErr)
+		}
+	}
+
+	// Sorting
+	if sortField != "rank" {
+		sort.Slice(hotStocks, func(i, j int) bool {
+			var vi, vj float64
+			switch sortField {
+			case "heat":
+				vi, _ = hotStocks[i]["heat"].(float64)
+				vj, _ = hotStocks[j]["heat"].(float64)
+			case "change_pct":
+				vi, _ = hotStocks[i]["change_pct"].(float64)
+				vj, _ = hotStocks[j]["change_pct"].(float64)
+			case "market_cap":
+				vi, _ = hotStocks[i]["market_cap"].(float64)
+				vj, _ = hotStocks[j]["market_cap"].(float64)
+			default:
+				ri, _ := hotStocks[i]["rank"].(int)
+				rj, _ := hotStocks[j]["rank"].(int)
+				vi = float64(ri)
+				vj = float64(rj)
+			}
+			if sortOrder == "desc" {
+				return vi > vj
+			}
+			return vi < vj
+		})
+	}
+
+	// Paginate
+	total := len(hotStocks)
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	pagedStocks := hotStocks[start:end]
+
+	response.Success(c, gin.H{
+		"stocks":      pagedStocks,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": (total + pageSize - 1) / pageSize,
+		"type":        listType,
+		"sort_field":  sortField,
+		"sort_order":  sortOrder,
+	})
+}
+
+// fetchHotListFrom10jqka fetches hot stock list from 同花顺 (10jqka) API
+// Returns stocks with full quote data merged from Eastmoney batch quote
+func fetchHotListFrom10jqka(listType string) ([]gin.H, error) {
+	// listType: "hour" for 1-hour hot, "day" for 24-hour/all-day hot
+	url := fmt.Sprintf("https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock?stock_type=a&type=%s&list_type=normal", listType)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://www.10jqka.com.cn/")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("10jqka request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body failed: %v", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse json failed: %v", err)
+	}
+
+	statusCode := int(safeFloat(raw, "status_code"))
+	if statusCode != 0 {
+		return nil, fmt.Errorf("10jqka returned status %d", statusCode)
+	}
+
+	dataObj, ok := raw["data"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("no data field")
+	}
+
+	stockList, ok := dataObj["stock_list"].([]interface{})
+	if !ok || len(stockList) == 0 {
+		return nil, fmt.Errorf("empty stock_list")
+	}
+
+	// Collect codes for batch quote
+	codes := []string{}
+	hotItems := []map[string]interface{}{}
+	for _, item := range stockList {
+		d, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		code := safeString(d, "code")
+		if code != "" {
+			codes = append(codes, code)
+			hotItems = append(hotItems, d)
+		}
+	}
+
+	// Batch fetch quotes from Eastmoney (price, change, market_cap)
+	quotes := fetchBatchQuotesWithMarketCap(codes)
+
+	// Build result
+	stocks := []gin.H{}
+	for _, d := range hotItems {
+		code := safeString(d, "code")
+		name := safeString(d, "name")
+		rank := int(safeFloat(d, "order"))
+		heatStr := safeString(d, "rate")
+		heat, _ := strconv.ParseFloat(heatStr, 64)
+		rankChg := int(safeFloat(d, "hot_rank_chg"))
+		changePct := safeFloat(d, "rise_and_fall")
+
+		// Extract concept tags
+		concepts := []string{}
+		analyseTitle := safeString(d, "analyse_title")
+		popTag := ""
+		if tagObj, ok := d["tag"].(map[string]interface{}); ok {
+			if conceptTags, ok := tagObj["concept_tag"].([]interface{}); ok {
+				for _, ct := range conceptTags {
+					if s, ok := ct.(string); ok {
+						concepts = append(concepts, s)
+					}
+				}
+			}
+			if pt, ok := tagObj["popularity_tag"].(string); ok {
+				popTag = pt
+			}
+		}
+		conceptStr := strings.Join(concepts, ",")
+
+		// Get quote data
+		q := quotes[code]
+		marketCap := 0.0
+		price := 0.0
+		if q != nil {
+			marketCap = q.MarketCap
+			price = q.Price
+		}
+
+		stocks = append(stocks, gin.H{
+			"rank":           rank,
+			"code":           code,
+			"name":           name,
+			"price":          price,
+			"change_pct":     changePct,
+			"heat":           heat,
+			"rank_change":    rankChg,
+			"market_cap":     marketCap,
+			"concepts":       conceptStr,
+			"analyse_title":  analyseTitle,
+			"popularity_tag": popTag,
+		})
+	}
+
+	log.Printf("[HotList] 10jqka type=%s returned %d stocks", listType, len(stocks))
+	return stocks, nil
+}
+
+// fetchHotListFromGuba fetches hot stock ranking from Eastmoney guba (股吧) popularity API
+// Used as fallback when 10jqka is unavailable
+func fetchHotListFromGuba() ([]gin.H, error) {
+	url := "https://emappdata.eastmoney.com/stockrank/getAllCurrentList"
+	body := `{"appId":"appId01","globalId":"786e4c21-70dc-435a-93bb-38","pageNo":1,"pageSize":50}`
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("POST", url, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://guba.eastmoney.com/")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("guba request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read guba body failed: %v", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(respBody, &raw); err != nil {
+		return nil, fmt.Errorf("parse guba json failed: %v", err)
+	}
+
+	code := int(safeFloat(raw, "code"))
+	if code != 0 {
+		return nil, fmt.Errorf("guba returned code %d", code)
+	}
+
+	dataArr, ok := raw["data"].([]interface{})
+	if !ok || len(dataArr) == 0 {
+		return nil, fmt.Errorf("guba empty data")
+	}
+
+	// Collect stock codes (format SH603778 -> 603778)
+	codes := []string{}
+	gubaItems := []map[string]interface{}{}
+	for _, item := range dataArr {
+		d, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		sc := safeString(d, "sc")
+		if len(sc) > 2 {
+			pureCode := sc[2:]
+			codes = append(codes, pureCode)
+			gubaItems = append(gubaItems, d)
+		}
+	}
+
+	// Batch fetch quotes
+	quotes := fetchBatchQuotesWithMarketCap(codes)
+
+	stocks := []gin.H{}
+	for _, d := range gubaItems {
+		sc := safeString(d, "sc")
+		rank := int(safeFloat(d, "rk"))
+		popularity := safeFloat(d, "rc")
+		rankChg := int(safeFloat(d, "hisRc"))
+
+		pureCode := ""
+		if len(sc) > 2 {
+			pureCode = sc[2:]
+		}
+
+		q := quotes[pureCode]
+		name := ""
+		price := 0.0
+		changePct := 0.0
+		marketCap := 0.0
+		concept := ""
+		if q != nil {
+			name = q.Name
+			price = q.Price
+			changePct = q.ChangePct
+			marketCap = q.MarketCap
+			concept = q.Concept
+		}
+
+		stocks = append(stocks, gin.H{
+			"rank":           rank,
+			"code":           pureCode,
+			"name":           name,
+			"price":          price,
+			"change_pct":     changePct,
+			"heat":           popularity,
+			"rank_change":    rankChg,
+			"market_cap":     marketCap,
+			"concepts":       concept,
+			"analyse_title":  "",
+			"popularity_tag": "",
+		})
+	}
+
+	log.Printf("[HotList] Guba returned %d stocks", len(stocks))
+	return stocks, nil
+}
+
+// quoteWithCap extends StockQuote with market cap and concept info
+type quoteWithCap struct {
+	Name      string
+	Price     float64
+	ChangePct float64
+	MarketCap float64
+	Concept   string
+}
+
+// fetchBatchQuotesWithMarketCap fetches batch quotes including market cap (f20) and concept (f100)
+func fetchBatchQuotesWithMarketCap(codes []string) map[string]*quoteWithCap {
+	result := make(map[string]*quoteWithCap)
+	if len(codes) == 0 {
+		return result
+	}
+
+	// Process in batches of 50
+	for batchStart := 0; batchStart < len(codes); batchStart += 50 {
+		batchEnd := batchStart + 50
+		if batchEnd > len(codes) {
+			batchEnd = len(codes)
+		}
+		batchCodes := codes[batchStart:batchEnd]
+
+		secids := []string{}
+		for _, code := range batchCodes {
+			secids = append(secids, buildSecID(code))
+		}
+
+		url := fmt.Sprintf("https://push2.eastmoney.com/api/qt/ulist.np/get?secids=%s&fields=f2,f3,f4,f7,f12,f14,f15,f16,f17,f18,f20,f21,f100",
+			strings.Join(secids, ","))
+
+		data, err := fetchEastmoneyAPIWithRetry(url, 2)
+		if err != nil {
+			log.Printf("[BatchQuoteCap] fetch error: %v", err)
+			continue
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			continue
+		}
+
+		dataObj, ok := raw["data"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		diffArr, ok := dataObj["diff"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, item := range diffArr {
+			d, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			code := safeString(d, "f12")
+			price := safeFloat(d, "f2")
+			preClose := safeFloat(d, "f18")
+			// Eastmoney sometimes returns cents
+			if price > 1000 {
+				price /= 100
+			}
+			if preClose > 1000 {
+				preClose /= 100
+			}
+
+			changePct := safeFloat(d, "f3")
+			// f3 may be in basis points (x1000) or percentage
+			if changePct > 100 || changePct < -100 {
+				changePct /= 100
+			}
+
+			marketCapRaw := safeFloat(d, "f20")
+			// f20 is in yuan, convert to 亿
+			marketCap := marketCapRaw / 100000000
+
+			concept := safeString(d, "f100")
+
+			result[code] = &quoteWithCap{
+				Name:      safeString(d, "f14"),
+				Price:     price,
+				ChangePct: changePct,
+				MarketCap: math.Round(marketCap*100) / 100,
+				Concept:   concept,
+			}
+		}
+	}
+
+	return result
+}
+
+// ==================== Enhanced K-Line from Eastmoney ====================
+
+// GetKLineRealtime returns real-time K-line data from Eastmoney for any period
+// Supports: 1min(1), 5min(5), 15min(15), 30min(30), 60min(60), day(101), week(102), month(103)
+func (h *Handler) GetKLineRealtime(c *gin.Context) {
+	code := c.Query("code")
+	if code == "" {
+		response.BadRequest(c, "请提供股票代码")
+		return
+	}
+
+	period := c.DefaultQuery("period", "101") // default daily
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "120"))
+	if limit < 1 || limit > 500 {
+		limit = 120
+	}
+
+	secid := buildSecID(code)
+
+	// Map period names to Eastmoney klt values
+	klt := period
+	switch period {
+	case "minute", "1min", "1":
+		klt = "1"
+	case "5min", "5":
+		klt = "5"
+	case "15min", "15":
+		klt = "15"
+	case "30min", "30":
+		klt = "30"
+	case "60min", "60":
+		klt = "60"
+	case "day", "daily", "101":
+		klt = "101"
+	case "week", "weekly", "102":
+		klt = "102"
+	case "month", "monthly", "103":
+		klt = "103"
+	}
+
+	url := fmt.Sprintf(
+		"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=%s&fqt=1&end=20500101&lmt=%d",
+		secid, klt, limit)
+
+	data, err := fetchEastmoneyAPIWithRetry(url, 3)
+	if err != nil {
+		response.InternalError(c, "获取K线数据失败: "+err.Error())
+		return
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		response.InternalError(c, "解析K线数据失败")
+		return
+	}
+
+	resultData, ok := raw["data"].(map[string]interface{})
+	if !ok {
+		response.Success(c, gin.H{"klines": []interface{}{}, "code": code, "period": period})
+		return
+	}
+
+	name := safeString(resultData, "name")
+	preClose := safeFloat(resultData, "preKPrice")
+	if preClose == 0 {
+		preClose = safeFloat(resultData, "prePrice")
+	}
+
+	klines := []gin.H{}
+	if klinesRaw, ok := resultData["klines"].([]interface{}); ok {
+		for _, k := range klinesRaw {
+			if kStr, ok := k.(string); ok {
+				parts := strings.Split(kStr, ",")
+				if len(parts) >= 7 {
+					open, _ := strconv.ParseFloat(parts[1], 64)
+					close, _ := strconv.ParseFloat(parts[2], 64)
+					high, _ := strconv.ParseFloat(parts[3], 64)
+					low, _ := strconv.ParseFloat(parts[4], 64)
+					volume, _ := strconv.ParseFloat(parts[5], 64)
+					amount, _ := strconv.ParseFloat(parts[6], 64)
+					changePct := 0.0
+					if len(parts) >= 9 {
+						changePct, _ = strconv.ParseFloat(parts[8], 64)
+					}
+					turnover := 0.0
+					if len(parts) >= 11 {
+						turnover, _ = strconv.ParseFloat(parts[10], 64)
+					}
+
+					klines = append(klines, gin.H{
+						"date":       parts[0],
+						"open":       open,
+						"close":      close,
+						"high":       high,
+						"low":        low,
+						"volume":     volume,
+						"amount":     amount,
+						"change_pct": changePct,
+						"turnover":   turnover,
+					})
+				}
+			}
+		}
+	}
+
+	response.Success(c, gin.H{
+		"code":      code,
+		"name":      name,
+		"period":    period,
+		"pre_close": preClose,
+		"klines":    klines,
+	})
+}
