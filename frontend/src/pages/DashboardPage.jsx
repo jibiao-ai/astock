@@ -18,10 +18,20 @@ export default function DashboardPage() {
   const [flowPage, setFlowPage] = useState(1)
   // Real-time stats
   const [realTimeStats, setRealTimeStats] = useState(null)
-  // Dragon tiger hot money
+  // Dragon tiger hot money - paginated
   const [hotMoneyData, setHotMoneyData] = useState([])
   const [hotMoneyDate, setHotMoneyDate] = useState('')
+  const [hotMoneyPage, setHotMoneyPage] = useState(1)
+  const [hotMoneyTotal, setHotMoneyTotal] = useState(0)
+  const [hotMoneyTotalPages, setHotMoneyTotalPages] = useState(1)
   const [expandedTrader, setExpandedTrader] = useState(null)
+  // Board seal + broken pagination (5 per page)
+  const [sealPage, setSealPage] = useState(1)
+  const [brokenPage, setBrokenPage] = useState(1)
+
+  const SEAL_PAGE_SIZE = 5
+  const BROKEN_PAGE_SIZE = 5
+  const HOT_MONEY_PAGE_SIZE = 5
 
   const last7Days = (() => {
     const dates = []
@@ -38,8 +48,36 @@ export default function DashboardPage() {
 
   useEffect(() => { loadData() }, [date])
 
+  // Load hot money with page change
+  useEffect(() => {
+    if (!loading) loadHotMoney(hotMoneyPage)
+  }, [hotMoneyPage])
+
+  const loadHotMoney = async (page) => {
+    const retryFetch = async (fn, retries = 3, delay = 1000) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const res = await fn()
+          if (res?.code === 0 && res.data) return res
+        } catch (e) { /* retry */ }
+        if (i < retries - 1) await new Promise(r => setTimeout(r, delay * (i + 1)))
+      }
+      return null
+    }
+    const hotMoneyRes = await retryFetch(() => getDragonTigerHotMoney({ page, page_size: HOT_MONEY_PAGE_SIZE }), 3, 2000)
+    if (hotMoneyRes?.code === 0) {
+      setHotMoneyData(hotMoneyRes.data?.traders || [])
+      setHotMoneyDate(hotMoneyRes.data?.trade_date || '')
+      setHotMoneyTotal(hotMoneyRes.data?.total || 0)
+      setHotMoneyTotalPages(hotMoneyRes.data?.total_pages || 1)
+    }
+  }
+
   const loadData = async () => {
     setLoading(true)
+    setSealPage(1)
+    setBrokenPage(1)
+    setHotMoneyPage(1)
     try {
       // Retry wrapper for individual API calls
       const retryFetch = async (fn, retries = 3, delay = 1000) => {
@@ -61,7 +99,7 @@ export default function DashboardPage() {
         retryFetch(() => getSectorFundFlow({ category: 'sector' })),
         retryFetch(() => getSectorFundFlow({ category: 'concept' })),
         retryFetch(() => getRealTimeStats()),
-        retryFetch(() => getDragonTigerHotMoney(), 2, 2000),
+        retryFetch(() => getDragonTigerHotMoney({ page: 1, page_size: HOT_MONEY_PAGE_SIZE }), 3, 2000),
       ])
       if (dashRes?.code === 0) setData(dashRes.data)
       if (conceptRes?.code === 0) setConceptData(conceptRes.data || [])
@@ -73,6 +111,8 @@ export default function DashboardPage() {
       if (hotMoneyRes?.code === 0) {
         setHotMoneyData(hotMoneyRes.data?.traders || [])
         setHotMoneyDate(hotMoneyRes.data?.trade_date || '')
+        setHotMoneyTotal(hotMoneyRes.data?.total || 0)
+        setHotMoneyTotalPages(hotMoneyRes.data?.total_pages || 1)
       }
     } catch (e) { console.error(e) }
     setLoading(false)
@@ -108,6 +148,12 @@ export default function DashboardPage() {
   const dragons = data?.dragon_tigers || []
   const stats = data?.stats || {}
 
+  // Pagination for seal (涨停封板) and broken (炸板)
+  const sealTotalPages = Math.max(1, Math.ceil(limitUps.length / SEAL_PAGE_SIZE))
+  const sealPaged = limitUps.slice((sealPage - 1) * SEAL_PAGE_SIZE, sealPage * SEAL_PAGE_SIZE)
+  const brokenTotalPages = Math.max(1, Math.ceil(brokens.length / BROKEN_PAGE_SIZE))
+  const brokenPaged = brokens.slice((brokenPage - 1) * BROKEN_PAGE_SIZE, brokenPage * BROKEN_PAGE_SIZE)
+
   const getScoreColor = (score) => {
     if (score >= 70) return '#EF4444'
     if (score >= 50) return '#F59E0B'
@@ -139,6 +185,42 @@ export default function DashboardPage() {
   const limitPagedStocks = currentLimitStocks.slice((limitPage - 1) * PAGE_SIZE, limitPage * PAGE_SIZE)
   const flowTotalPages = Math.max(1, Math.ceil(currentFlows.length / PAGE_SIZE))
   const flowPagedItems = currentFlows.slice((flowPage - 1) * PAGE_SIZE, flowPage * PAGE_SIZE)
+
+  // Pagination component helper
+  const PaginationBar = ({ page, totalPages, total, label, onPageChange }) => (
+    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+      <span className="text-[10px] text-gray-400">共 {total} {label} · 第 {page}/{totalPages} 页</span>
+      <div className="flex items-center gap-0.5">
+        <button onClick={() => onPageChange(Math.max(1, page - 1))} disabled={page <= 1}
+          className={`p-1 rounded transition ${page <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-[#513CC8] hover:bg-[#F0EDFA]'}`}>
+          <ChevronLeft size={13} />
+        </button>
+        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+          let p
+          if (totalPages <= 5) {
+            p = i + 1
+          } else if (page <= 3) {
+            p = i + 1
+          } else if (page >= totalPages - 2) {
+            p = totalPages - 4 + i
+          } else {
+            p = page - 2 + i
+          }
+          return (
+            <button key={p} onClick={() => onPageChange(p)}
+              className={`w-5 h-5 rounded text-[10px] font-medium transition ${p === page ? 'text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+              style={p === page ? { background: '#513CC8' } : {}}>
+              {p}
+            </button>
+          )
+        })}
+        <button onClick={() => onPageChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
+          className={`p-1 rounded transition ${page >= totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-[#513CC8] hover:bg-[#F0EDFA]'}`}>
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
@@ -430,10 +512,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Row 3: Board Ladder + Broken Stocks + Sector Chart - NOW USING REAL-TIME DATA */}
+      {/* Row 3: Board Ladder (paginated 5/page) + Broken Stocks (paginated 5/page) + Sector Chart */}
       <div className="grid grid-cols-12 gap-3">
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Crown size={16} className="text-red-500" /> 涨停封板 · 连板天梯 <span className="text-[10px] text-gray-400 font-normal ml-1">(实时)</span></h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Crown size={16} className="text-red-500" /> 涨停封板 · 连板天梯 <span className="text-[10px] text-gray-400 font-normal ml-1">(实时·每页5)</span></h3>
           {boardLadder.max_board > 0 && (
             <div className="flex items-center gap-1 mb-2 flex-wrap">
               {Array.from({length: boardLadder.max_board}, (_, i) => boardLadder.max_board - i).map(level => {
@@ -447,8 +529,8 @@ export default function DashboardPage() {
               })}
             </div>
           )}
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {limitUps.slice(0, 12).map((s, i) => (
+          <div className="space-y-1">
+            {sealPaged.map((s, i) => (
               <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition text-xs">
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded bg-red-50 text-red-500 flex items-center justify-center text-[10px] font-bold border border-red-100">
@@ -467,16 +549,19 @@ export default function DashboardPage() {
               <div className="text-center py-4 text-gray-400 text-xs">暂无涨停封板数据</div>
             )}
           </div>
+          {limitUps.length > SEAL_PAGE_SIZE && (
+            <PaginationBar page={sealPage} totalPages={sealTotalPages} total={limitUps.length} label="家" onPageChange={setSealPage} />
+          )}
         </div>
 
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><AlertTriangle size={16} className="text-yellow-500" /> 炸板个股 <span className="text-[10px] text-gray-400 font-normal ml-1">(实时)</span></h3>
-          <div className="space-y-1 max-h-56 overflow-y-auto">
-            {brokens.length > 0 ? brokens.map((s, i) => (
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><AlertTriangle size={16} className="text-yellow-500" /> 炸板个股 <span className="text-[10px] text-gray-400 font-normal ml-1">(实时·每页5)</span></h3>
+          <div className="space-y-1">
+            {brokenPaged.length > 0 ? brokenPaged.map((s, i) => (
               <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition text-xs">
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded bg-yellow-50 text-yellow-600 flex items-center justify-center text-[10px] font-bold border border-yellow-100">
-                    {i + 1}
+                    {(brokenPage - 1) * BROKEN_PAGE_SIZE + i + 1}
                   </span>
                   <span className="text-gray-800 font-medium">{s.name}</span>
                   <span className="text-gray-400">{s.code}</span>
@@ -492,6 +577,9 @@ export default function DashboardPage() {
               <div className="text-center py-4 text-gray-400 text-xs">暂无炸板数据（非交易时段或无炸板）</div>
             )}
           </div>
+          {brokens.length > BROKEN_PAGE_SIZE && (
+            <PaginationBar page={brokenPage} totalPages={brokenTotalPages} total={brokens.length} label="家" onPageChange={setBrokenPage} />
+          )}
         </div>
 
         <div className="col-span-4 glass-card p-4">
@@ -512,19 +600,19 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Row 4: Dragon Tiger Hot Money (REAL DATA by trader name) + Charts */}
+      {/* Row 4: Dragon Tiger Hot Money (PAGINATED 5/page, by trader name) + Charts */}
       <div className="grid grid-cols-12 gap-3">
         <div className="col-span-6 glass-card p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-gray-800">
               <Users size={16} className="text-orange-500" /> 龙虎榜游资数据
-              <span className="text-[10px] text-gray-400 font-normal ml-1">(按游资分组)</span>
+              <span className="text-[10px] text-gray-400 font-normal ml-1">(按游资分组·每页5)</span>
             </h3>
             {hotMoneyDate && (
               <span className="text-[10px] text-gray-400 bg-gray-50 px-2 py-0.5 rounded border border-gray-100">{hotMoneyDate}</span>
             )}
           </div>
-          <div className="overflow-x-auto max-h-80 overflow-y-auto">
+          <div className="overflow-x-auto">
             {hotMoneyData.length > 0 ? (
               <div className="space-y-1">
                 {hotMoneyData.map((trader, i) => (
@@ -535,7 +623,7 @@ export default function DashboardPage() {
                     >
                       <div className="flex items-center gap-2">
                         <span className="w-6 h-6 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-[10px] font-bold border border-orange-100">
-                          {i + 1}
+                          {(hotMoneyPage - 1) * HOT_MONEY_PAGE_SIZE + i + 1}
                         </span>
                         <span className="text-sm font-semibold text-gray-800">{trader.trader_name}</span>
                         <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{trader.trade_count}笔</span>
@@ -589,6 +677,10 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+          {hotMoneyTotal > HOT_MONEY_PAGE_SIZE && (
+            <PaginationBar page={hotMoneyPage} totalPages={hotMoneyTotalPages} total={hotMoneyTotal} label="家游资"
+              onPageChange={(p) => { setHotMoneyPage(p); setExpandedTrader(null) }} />
+          )}
         </div>
 
         <div className="col-span-3 glass-card p-4">

@@ -47,7 +47,7 @@ export const getConceptHeat = () => api.get('/market/concept-heat')
 export const getLimitUpDownDetails = (params) => api.get('/market/limit-details', { params })
 export const getSectorFundFlow = (params) => api.get('/market/sector-fund-flow', { params })
 export const getRealTimeStats = () => api.get('/market/realtime-stats')
-export const getDragonTigerHotMoney = () => api.get('/market/dragon-tiger-hotmoney')
+export const getDragonTigerHotMoney = (params) => api.get('/market/dragon-tiger-hotmoney', { params })
 
 // Watchlist
 export const getWatchlist = () => api.get('/watchlist')
