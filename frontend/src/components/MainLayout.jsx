@@ -10,11 +10,13 @@ import AIModelsPage from '../pages/AIModelsPage'
 import UsersPage from '../pages/UsersPage'
 import AuditLogPage from '../pages/AuditLogPage'
 import WatchlistPage from '../pages/WatchlistPage'
+import HotListPage from '../pages/HotListPage'
 
 const pageMap = {
   'dashboard': DashboardPage,
   'realtime': RealtimePage,
   'watchlist': WatchlistPage,
+  'hot-list': HotListPage,
   'smart-ask': () => <ChatPage agentType="smart_ask" />,
   'smart-diagnose': () => <ChatPage agentType="smart_diagnose" />,
   'main-flow': () => <ChatPage agentType="main_flow" />,

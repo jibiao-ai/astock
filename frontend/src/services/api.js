@@ -48,6 +48,8 @@ export const getLimitUpDownDetails = (params) => api.get('/market/limit-details'
 export const getSectorFundFlow = (params) => api.get('/market/sector-fund-flow', { params })
 export const getRealTimeStats = () => api.get('/market/realtime-stats')
 export const getDragonTigerHotMoney = (params) => api.get('/market/dragon-tiger-hotmoney', { params })
+export const getMarketHotList = (params) => api.get('/market/hot-list', { params })
+export const getKLineRealtime = (params) => api.get('/market/kline-realtime', { params })
 
 // Watchlist
 export const getWatchlist = () => api.get('/watchlist')
