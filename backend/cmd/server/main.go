@@ -72,6 +72,8 @@ func main() {
 		auth.GET("/market/concept-heat", h.GetConceptHeat)
 		auth.GET("/market/limit-details", h.GetLimitUpDownDetails)
 		auth.GET("/market/sector-fund-flow", h.GetSectorFundFlow)
+		auth.GET("/market/realtime-stats", h.GetRealTimeStats)
+		auth.GET("/market/dragon-tiger-hotmoney", h.GetDragonTigerHotMoney)
 
 		// Watchlist
 		auth.GET("/watchlist", h.GetWatchlist)
