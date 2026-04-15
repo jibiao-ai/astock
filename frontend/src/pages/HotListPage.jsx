@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getMarketHotList, getTrendChart, getTrendChart5Day, getKLineRealtime } from '../services/api'
+import { getMarketHotList, getTrendChart, getTrendChart5Day, getKLineRealtime, getGubaDiscussion } from '../services/api'
 import {
   Flame, TrendingUp, TrendingDown, RefreshCw, ChevronLeft, ChevronRight,
   ArrowUpDown, Clock, Calendar, BarChart3, LineChart, CandlestickChart,
-  X, ChevronDown, ChevronUp, Search
+  X, ChevronDown, ChevronUp, Search, MessageCircle, Eye, Share2,
+  Image, Video, ExternalLink, Loader2
 } from 'lucide-react'
 import {
   LineChart as ReLineChart, Line, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ComposedChart, ReferenceLine
 } from 'recharts'
+import { useRef } from 'react'
 import toast from 'react-hot-toast'
 
 const PAGE_SIZE = 20
@@ -31,6 +33,18 @@ export default function HotListPage() {
   const [chartTab, setChartTab] = useState('minute') // minute | five_day | daily | weekly
   const [chartData, setChartData] = useState(null)
   const [chartLoading, setChartLoading] = useState(false)
+
+  // Panel mode: 'chart' or 'guba'
+  const [panelMode, setPanelMode] = useState('chart')
+
+  // Guba discussion state
+  const [gubaPosts, setGubaPosts] = useState([])
+  const [gubaPage, setGubaPage] = useState(1)
+  const [gubaTotal, setGubaTotal] = useState(0)
+  const [gubaLoading, setGubaLoading] = useState(false)
+  const [gubaLoadingMore, setGubaLoadingMore] = useState(false)
+  const [gubaHasMore, setGubaHasMore] = useState(true)
+  const gubaScrollRef = useRef(null)
 
   const loadData = useCallback(async (p = page, sf = sortField, so = sortOrder, type = listType) => {
     setLoading(true)
@@ -127,15 +141,49 @@ export default function HotListPage() {
     setChartLoading(false)
   }, [])
 
+  // Load Guba discussion data
+  const loadGubaData = useCallback(async (stockCode, pageNum = 1, append = false) => {
+    if (!stockCode) return
+    if (pageNum === 1) {
+      setGubaLoading(true)
+    } else {
+      setGubaLoadingMore(true)
+    }
+    try {
+      const res = await getGubaDiscussion({ code: stockCode, page: pageNum, page_size: 20 })
+      if (res?.code === 0 && res.data) {
+        const newPosts = res.data.posts || []
+        if (append) {
+          setGubaPosts(prev => [...prev, ...newPosts])
+        } else {
+          setGubaPosts(newPosts)
+        }
+        setGubaTotal(res.data.total || 0)
+        setGubaPage(pageNum)
+        setGubaHasMore(newPosts.length >= 20 && pageNum < (res.data.total_pages || 1))
+      }
+    } catch (e) {
+      console.error('Failed to load guba:', e)
+      if (pageNum === 1) toast.error('加载股吧讨论失败')
+    }
+    setGubaLoading(false)
+    setGubaLoadingMore(false)
+  }, [])
+
   const handleStockClick = (stock) => {
     if (selectedStock?.code === stock.code) {
       setSelectedStock(null)
       setChartData(null)
+      setGubaPosts([])
+      setPanelMode('chart')
       return
     }
     setSelectedStock(stock)
     setChartTab('minute')
+    setPanelMode('chart')
     loadChartData(stock, 'minute')
+    // Preload guba data
+    loadGubaData(stock.code, 1, false)
   }
 
   const handleChartTabChange = (tab) => {
@@ -143,6 +191,46 @@ export default function HotListPage() {
     if (selectedStock) {
       loadChartData(selectedStock, tab)
     }
+  }
+
+  // Handle guba infinite scroll
+  const handleGubaScroll = useCallback((e) => {
+    const el = e.target
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && gubaHasMore && !gubaLoadingMore) {
+      loadGubaData(selectedStock?.code, gubaPage + 1, true)
+    }
+  }, [gubaHasMore, gubaLoadingMore, gubaPage, selectedStock])
+
+  // Refresh guba data
+  const handleGubaRefresh = async () => {
+    if (!selectedStock) return
+    setGubaPosts([])
+    setGubaPage(1)
+    setGubaHasMore(true)
+    await loadGubaData(selectedStock.code, 1, false)
+    toast.success('股吧讨论已刷新')
+    if (gubaScrollRef.current) gubaScrollRef.current.scrollTop = 0
+  }
+
+  // Format relative time
+  const formatRelativeTime = (timeStr) => {
+    if (!timeStr) return ''
+    try {
+      const t = new Date(timeStr.replace(/-/g, '/'))
+      const now = new Date()
+      const diff = (now - t) / 1000
+      if (diff < 60) return '刚刚'
+      if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
+      if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`
+      if (diff < 172800) return '昨天'
+      return timeStr.slice(5, 16)
+    } catch { return timeStr?.slice(5, 16) || '' }
+  }
+
+  const formatReadCount = (v) => {
+    if (!v) return '0'
+    if (v >= 10000) return (v / 10000).toFixed(1) + '万'
+    return v.toString()
   }
 
   const formatMarketCap = (v) => {
@@ -516,10 +604,10 @@ export default function HotListPage() {
           <PaginationBar />
         </div>
 
-        {/* Chart Panel */}
+        {/* Detail Panel */}
         {selectedStock && (
-          <div className="col-span-5 glass-card p-4">
-            {/* Chart header */}
+          <div className="col-span-5 glass-card p-4 flex flex-col" style={{ maxHeight: 'calc(100vh - 140px)' }}>
+            {/* Panel header */}
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
@@ -533,62 +621,154 @@ export default function HotListPage() {
                   <p className="text-[10px] text-gray-400 mt-0.5">{selectedStock.analyse_title}</p>
                 )}
               </div>
-              <button onClick={() => { setSelectedStock(null); setChartData(null) }}
+              <button onClick={() => { setSelectedStock(null); setChartData(null); setGubaPosts([]); setPanelMode('chart') }}
                 className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition">
                 <X size={14} />
               </button>
             </div>
 
-            {/* Chart tabs */}
+            {/* Panel mode toggle: Chart / Discussion */}
             <div className="flex gap-1 mb-3">
-              {[
-                { key: 'minute', label: '分时', icon: LineChart },
-                { key: 'five_day', label: '五日', icon: LineChart },
-                { key: 'daily', label: '日K', icon: CandlestickChart },
-                { key: 'weekly', label: '周K', icon: BarChart3 },
-              ].map(tab => (
-                <button key={tab.key}
-                  onClick={() => handleChartTabChange(tab.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1 ${
-                    chartTab === tab.key
-                      ? 'text-white shadow-sm'
-                      : 'text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100'
-                  }`}
-                  style={chartTab === tab.key ? { background: '#513CC8' } : {}}>
-                  <tab.icon size={12} /> {tab.label}
-                </button>
-              ))}
+              <button onClick={() => setPanelMode('chart')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1 ${
+                  panelMode === 'chart' ? 'text-white shadow-sm' : 'text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100'
+                }`}
+                style={panelMode === 'chart' ? { background: '#513CC8' } : {}}>
+                <BarChart3 size={12} /> K线图表
+              </button>
+              <button onClick={() => { setPanelMode('guba'); if (gubaPosts.length === 0 && selectedStock) loadGubaData(selectedStock.code, 1, false) }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1 ${
+                  panelMode === 'guba' ? 'text-white shadow-sm' : 'text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100'
+                }`}
+                style={panelMode === 'guba' ? { background: '#513CC8' } : {}}>
+                <MessageCircle size={12} /> 股吧讨论
+                {gubaTotal > 0 && <span className="text-[9px] opacity-80 ml-0.5">({gubaTotal > 10000 ? (gubaTotal / 10000).toFixed(0) + '万' : gubaTotal})</span>}
+              </button>
             </div>
 
-            {/* Chart content */}
-            <div className="min-h-[340px]">
-              {chartLoading ? (
-                <div className="flex items-center justify-center h-[340px]">
-                  <RefreshCw size={24} className="animate-spin text-[#513CC8]" />
+            {/* Chart Mode */}
+            {panelMode === 'chart' && (
+              <>
+                {/* Chart tabs */}
+                <div className="flex gap-1 mb-3">
+                  {[
+                    { key: 'minute', label: '分时', icon: LineChart },
+                    { key: 'five_day', label: '五日', icon: LineChart },
+                    { key: 'daily', label: '日K', icon: CandlestickChart },
+                    { key: 'weekly', label: '周K', icon: BarChart3 },
+                  ].map(tab => (
+                    <button key={tab.key}
+                      onClick={() => handleChartTabChange(tab.key)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1 ${
+                        chartTab === tab.key
+                          ? 'text-white shadow-sm'
+                          : 'text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100'
+                      }`}
+                      style={chartTab === tab.key ? { background: '#513CC8' } : {}}>
+                      <tab.icon size={12} /> {tab.label}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  {(chartTab === 'minute' || chartTab === 'five_day') && renderMinuteChart()}
-                  {(chartTab === 'daily' || chartTab === 'weekly') && renderKLineChart()}
-                </>
-              )}
-            </div>
 
-            {/* Stock info footer */}
-            <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-3 gap-2 text-[10px]">
-              <div className="text-center">
-                <span className="text-gray-400">市值</span>
-                <p className="font-bold text-gray-700">{formatMarketCap(selectedStock.market_cap)}</p>
+                {/* Chart content */}
+                <div className="min-h-[340px]">
+                  {chartLoading ? (
+                    <div className="flex items-center justify-center h-[340px]">
+                      <RefreshCw size={24} className="animate-spin text-[#513CC8]" />
+                    </div>
+                  ) : (
+                    <>
+                      {(chartTab === 'minute' || chartTab === 'five_day') && renderMinuteChart()}
+                      {(chartTab === 'daily' || chartTab === 'weekly') && renderKLineChart()}
+                    </>
+                  )}
+                </div>
+
+                {/* Stock info footer */}
+                <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-3 gap-2 text-[10px]">
+                  <div className="text-center">
+                    <span className="text-gray-400">市值</span>
+                    <p className="font-bold text-gray-700">{formatMarketCap(selectedStock.market_cap)}</p>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-gray-400">热度排名</span>
+                    <p className="font-bold text-orange-500">#{selectedStock.rank}</p>
+                  </div>
+                  <div className="text-center">
+                    <span className="text-gray-400">概念</span>
+                    <p className="font-bold text-gray-700 truncate">{selectedStock.concepts || '---'}</p>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Guba Discussion Mode */}
+            {panelMode === 'guba' && (
+              <div className="flex flex-col flex-1 min-h-0">
+                {/* Guba header bar */}
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-gray-400">
+                    {selectedStock.name}吧 · {gubaTotal > 10000 ? (gubaTotal / 10000).toFixed(0) + '万' : gubaTotal} 条帖子
+                  </span>
+                  <button onClick={handleGubaRefresh} disabled={gubaLoading}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] text-gray-500 hover:text-[#513CC8] hover:bg-[#F0EDFA] transition">
+                    <RefreshCw size={11} className={gubaLoading ? 'animate-spin' : ''} /> 刷新
+                  </button>
+                </div>
+
+                {/* Discussion list with infinite scroll */}
+                <div ref={gubaScrollRef} onScroll={handleGubaScroll}
+                  className="flex-1 overflow-y-auto space-y-0 pr-1" style={{ maxHeight: 'calc(100vh - 340px)' }}>
+                  {gubaLoading && gubaPosts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12">
+                      <Loader2 size={24} className="animate-spin text-[#513CC8] mb-2" />
+                      <span className="text-xs text-gray-400">加载股吧讨论...</span>
+                    </div>
+                  ) : gubaPosts.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400 text-xs">暂无讨论数据</div>
+                  ) : (
+                    <>
+                      {gubaPosts.map((post, idx) => (
+                        <a key={`${post.post_id}-${idx}`}
+                          href={post.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block px-3 py-2.5 hover:bg-[#F8F6FF] rounded-lg transition group border-b border-gray-50 last:border-0">
+                          {/* Title */}
+                          <div className="flex items-start gap-1.5">
+                            <p className="text-xs text-gray-800 font-medium leading-relaxed flex-1 line-clamp-2 group-hover:text-[#513CC8] transition">
+                              {post.title}
+                            </p>
+                            <ExternalLink size={10} className="text-gray-300 group-hover:text-[#513CC8] mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition" />
+                          </div>
+                          {/* Meta row */}
+                          <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400">
+                            <span className="font-medium text-gray-500 truncate max-w-[80px]">{post.author}</span>
+                            <span className="flex items-center gap-0.5"><Eye size={9} /> {formatReadCount(post.read_count)}</span>
+                            <span className="flex items-center gap-0.5"><MessageCircle size={9} /> {post.comment_count}</span>
+                            {post.forward_count > 0 && <span className="flex items-center gap-0.5"><Share2 size={9} /> {post.forward_count}</span>}
+                            {post.has_pic && <Image size={9} className="text-blue-400" />}
+                            {post.has_video && <Video size={9} className="text-red-400" />}
+                            <span className="ml-auto">{formatRelativeTime(post.publish_time)}</span>
+                          </div>
+                        </a>
+                      ))}
+
+                      {/* Load more indicator */}
+                      {gubaLoadingMore && (
+                        <div className="flex items-center justify-center py-3">
+                          <Loader2 size={16} className="animate-spin text-[#513CC8] mr-2" />
+                          <span className="text-[10px] text-gray-400">加载更多...</span>
+                        </div>
+                      )}
+                      {!gubaHasMore && gubaPosts.length > 0 && (
+                        <div className="text-center py-3 text-[10px] text-gray-300">— 已加载全部 —</div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="text-center">
-                <span className="text-gray-400">热度排名</span>
-                <p className="font-bold text-orange-500">#{selectedStock.rank}</p>
-              </div>
-              <div className="text-center">
-                <span className="text-gray-400">概念</span>
-                <p className="font-bold text-gray-700 truncate">{selectedStock.concepts || '---'}</p>
-              </div>
-            </div>
+            )}
           </div>
         )}
       </div>

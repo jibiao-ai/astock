@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -2160,5 +2161,178 @@ func (h *Handler) GetKLineRealtime(c *gin.Context) {
 		"period":    period,
 		"pre_close": preClose,
 		"klines":    klines,
+	})
+}
+
+// ==================== Guba (股吧) Discussion ====================
+
+// gubaArticleListRegex extracts the embedded JSON from the SSR HTML
+var gubaArticleListRegex = regexp.MustCompile(`var\s+article_list\s*=\s*(\{.*?\});\s*(?:var|</script>)`)
+
+// GetGubaDiscussion returns stock discussion posts from Eastmoney Guba
+// GET /api/market/guba?code=600519&page=1&page_size=20
+func (h *Handler) GetGubaDiscussion(c *gin.Context) {
+	code := c.Query("code")
+	if code == "" {
+		response.BadRequest(c, "请提供股票代码")
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 80 {
+		pageSize = 20
+	}
+
+	// Fetch the Guba HTML page (SSR includes article_list JSON)
+	var gubaURL string
+	if page <= 1 {
+		gubaURL = fmt.Sprintf("https://guba.eastmoney.com/list,%s.html", code)
+	} else {
+		gubaURL = fmt.Sprintf("https://guba.eastmoney.com/list,%s,f_%d.html", code, page)
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", gubaURL, nil)
+	if err != nil {
+		response.InternalError(c, "请求构建失败")
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Referer", "https://guba.eastmoney.com/")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		response.InternalError(c, "获取股吧数据失败: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		response.InternalError(c, "读取股吧数据失败")
+		return
+	}
+
+	htmlStr := string(body)
+
+	// Extract embedded article_list JSON from SSR HTML
+	match := gubaArticleListRegex.FindStringSubmatch(htmlStr)
+	if len(match) < 2 {
+		response.Success(c, gin.H{
+			"code":        code,
+			"page":        page,
+			"page_size":   pageSize,
+			"total":       0,
+			"total_pages": 0,
+			"posts":       []interface{}{},
+		})
+		return
+	}
+
+	var rawData map[string]interface{}
+	if err := json.Unmarshal([]byte(match[1]), &rawData); err != nil {
+		response.InternalError(c, "解析股吧数据失败")
+		return
+	}
+
+	// Extract total count
+	total := 0
+	if cnt, ok := rawData["count"].(float64); ok {
+		total = int(cnt)
+	}
+
+	// Extract articles array
+	articles, _ := rawData["re"].([]interface{})
+	barName, _ := rawData["bar_name"].(string)
+
+	// Limit to page_size items (Guba returns 80 per page, we may want fewer)
+	if pageSize < len(articles) {
+		articles = articles[:pageSize]
+	}
+
+	// Transform articles to clean format
+	posts := make([]gin.H, 0, len(articles))
+	for _, art := range articles {
+		a, ok := art.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Skip ads and special posts
+		postType := ""
+		if pt, ok := a["post_type"].(float64); ok {
+			postType = fmt.Sprintf("%.0f", pt)
+		}
+
+		postID := ""
+		if pid, ok := a["post_id"].(float64); ok {
+			postID = fmt.Sprintf("%.0f", pid)
+		}
+
+		title, _ := a["post_title"].(string)
+		nickname, _ := a["user_nickname"].(string)
+		publishTime, _ := a["post_publish_time"].(string)
+
+		clickCount := 0
+		if cc, ok := a["post_click_count"].(float64); ok {
+			clickCount = int(cc)
+		}
+		commentCount := 0
+		if cc, ok := a["post_comment_count"].(float64); ok {
+			commentCount = int(cc)
+		}
+		forwardCount := 0
+		if fc, ok := a["post_forward_count"].(float64); ok {
+			forwardCount = int(fc)
+		}
+
+		postIP, _ := a["post_ip"].(string)
+		hasPic := false
+		if hp, ok := a["post_has_pic"].(float64); ok && hp > 0 {
+			hasPic = true
+		}
+		hasVideo := false
+		if hv, ok := a["post_has_video"].(float64); ok && hv > 0 {
+			hasVideo = true
+		}
+
+		// Determine post source URL
+		sourceURL := fmt.Sprintf("https://guba.eastmoney.com/news,%s,%s.html", code, postID)
+
+		post := gin.H{
+			"post_id":       postID,
+			"title":         title,
+			"author":        nickname,
+			"publish_time":  publishTime,
+			"read_count":    clickCount,
+			"comment_count": commentCount,
+			"forward_count": forwardCount,
+			"post_type":     postType,
+			"post_ip":       postIP,
+			"has_pic":       hasPic,
+			"has_video":     hasVideo,
+			"url":           sourceURL,
+		}
+
+		posts = append(posts, post)
+	}
+
+	// Calculate total pages (Guba serves 80 per their page)
+	gubaPageSize := 80
+	totalPages := (total + gubaPageSize - 1) / gubaPageSize
+
+	response.Success(c, gin.H{
+		"code":        code,
+		"bar_name":    barName,
+		"page":        page,
+		"page_size":   pageSize,
+		"total":       total,
+		"total_pages": totalPages,
+		"posts":       posts,
 	})
 }
