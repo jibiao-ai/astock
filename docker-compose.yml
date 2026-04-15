@@ -15,11 +15,14 @@ services:
       - mysql_data:/var/lib/mysql
     networks:
       - quantmind-net
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 30
+      start_period: 30s
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -31,11 +34,13 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - quantmind-net
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 20s
 
   backend:
     build:
@@ -68,6 +73,7 @@ services:
         condition: service_healthy
     networks:
       - quantmind-net
+    restart: unless-stopped
     dns:
       - 223.5.5.5
       - 8.8.8.8
@@ -86,6 +92,7 @@ services:
       - backend
     networks:
       - quantmind-net
+    restart: unless-stopped
     dns:
       - 223.5.5.5
       - 8.8.8.8
