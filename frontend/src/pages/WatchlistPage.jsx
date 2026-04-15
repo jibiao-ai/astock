@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import { getWatchlistQuotes, addWatchlistItem, removeWatchlistItem, getStockQuote, getTrendChart, getChipDistribution, getStockFundFlow, getDragonTigerHotMoney } from '../services/api'
-import { Plus, Trash2, RefreshCw, Star, Search, TrendingUp, TrendingDown, ArrowUpDown, X, BarChart3, Activity, DollarSign, Users, LineChart } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { getWatchlistQuotes, addWatchlistItem, removeWatchlistItem, getStockQuote, getTrendChart, getChipDistribution, getStockFundFlow, getDragonTigerHotMoney, getGubaDiscussion } from '../services/api'
+import { Plus, Trash2, RefreshCw, Star, Search, TrendingUp, TrendingDown, ArrowUpDown, X, BarChart3, Activity, DollarSign, Users, LineChart, MessageCircle, Eye, Share2, Image, Video, ExternalLink, Loader2 } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, LineChart as RLineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ComposedChart, ReferenceLine } from 'recharts'
 import toast from 'react-hot-toast'
 
@@ -19,6 +19,15 @@ export default function WatchlistPage() {
   const [fundFlowData, setFundFlowData] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
+  // Guba discussion state
+  const [gubaPosts, setGubaPosts] = useState([])
+  const [gubaPage, setGubaPage] = useState(1)
+  const [gubaTotal, setGubaTotal] = useState(0)
+  const [gubaLoading, setGubaLoading] = useState(false)
+  const [gubaLoadingMore, setGubaLoadingMore] = useState(false)
+  const [gubaHasMore, setGubaHasMore] = useState(true)
+  const gubaScrollRef = useRef(null)
+
   const loadStocks = useCallback(async () => {
     try {
       const res = await getWatchlistQuotes()
@@ -35,7 +44,11 @@ export default function WatchlistPage() {
   // Load detail data when stock or tab changes
   useEffect(() => {
     if (detailStock) {
-      loadDetailData(detailStock.code, detailTab)
+      if (detailTab === 'guba') {
+        if (gubaPosts.length === 0) loadGubaData(detailStock.code, 1, false)
+      } else {
+        loadDetailData(detailStock.code, detailTab)
+      }
     }
   }, [detailStock, detailTab])
 
@@ -56,6 +69,75 @@ export default function WatchlistPage() {
       console.error(e)
     }
     setDetailLoading(false)
+  }
+
+  // Load Guba discussion data
+  const loadGubaData = useCallback(async (stockCode, pageNum = 1, append = false) => {
+    if (!stockCode) return
+    if (pageNum === 1) {
+      setGubaLoading(true)
+    } else {
+      setGubaLoadingMore(true)
+    }
+    try {
+      const res = await getGubaDiscussion({ code: stockCode, page: pageNum, page_size: 20 })
+      if (res?.code === 0 && res.data) {
+        const newPosts = res.data.posts || []
+        if (append) {
+          setGubaPosts(prev => [...prev, ...newPosts])
+        } else {
+          setGubaPosts(newPosts)
+        }
+        setGubaTotal(res.data.total || 0)
+        setGubaPage(pageNum)
+        setGubaHasMore(newPosts.length >= 20 && pageNum < (res.data.total_pages || 1))
+      }
+    } catch (e) {
+      console.error('Failed to load guba:', e)
+      if (pageNum === 1) toast.error('加载股吧讨论失败')
+    }
+    setGubaLoading(false)
+    setGubaLoadingMore(false)
+  }, [])
+
+  // Handle guba infinite scroll
+  const handleGubaScroll = useCallback((e) => {
+    const el = e.target
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && gubaHasMore && !gubaLoadingMore) {
+      loadGubaData(detailStock?.code, gubaPage + 1, true)
+    }
+  }, [gubaHasMore, gubaLoadingMore, gubaPage, detailStock])
+
+  // Refresh guba data
+  const handleGubaRefresh = async () => {
+    if (!detailStock) return
+    setGubaPosts([])
+    setGubaPage(1)
+    setGubaHasMore(true)
+    await loadGubaData(detailStock.code, 1, false)
+    toast.success('股吧讨论已刷新')
+    if (gubaScrollRef.current) gubaScrollRef.current.scrollTop = 0
+  }
+
+  // Format relative time for guba posts
+  const formatRelativeTime = (timeStr) => {
+    if (!timeStr) return ''
+    try {
+      const t = new Date(timeStr.replace(/-/g, '/'))
+      const now = new Date()
+      const diff = (now - t) / 1000
+      if (diff < 60) return '刚刚'
+      if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
+      if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`
+      if (diff < 172800) return '昨天'
+      return timeStr.slice(5, 16)
+    } catch { return timeStr?.slice(5, 16) || '' }
+  }
+
+  const formatReadCount = (v) => {
+    if (!v) return '0'
+    if (v >= 10000) return (v / 10000).toFixed(1) + '万'
+    return v.toString()
   }
 
   const handleAdd = async () => {
@@ -96,7 +178,10 @@ export default function WatchlistPage() {
         toast.success(`已删除 ${name}`)
         setStocks(prev => prev.filter(s => s.code !== code))
         setSelected(prev => { const n = new Set(prev); n.delete(code); return n })
-        if (detailStock?.code === code) setDetailStock(null)
+        if (detailStock?.code === code) {
+          setDetailStock(null)
+          setGubaPosts([])
+        }
       } else {
         toast.error(res.message || '删除失败')
       }
@@ -115,7 +200,10 @@ export default function WatchlistPage() {
     }
     toast.success(`已删除 ${selected.size} 只股票`)
     setSelected(new Set())
-    if (detailStock && selected.has(detailStock.code)) setDetailStock(null)
+    if (detailStock && selected.has(detailStock.code)) {
+      setDetailStock(null)
+      setGubaPosts([])
+    }
     loadStocks()
   }
 
@@ -144,8 +232,9 @@ export default function WatchlistPage() {
   // Detail tabs
   const detailTabs = [
     { key: 'trend', label: '分时走势', icon: Activity },
-    { key: 'chip', label: '资金流向(筹码)', icon: BarChart3 },
-    { key: 'fundflow', label: '主力/散户资金', icon: DollarSign },
+    { key: 'chip', label: '资金流向', icon: BarChart3 },
+    { key: 'fundflow', label: '主力资金', icon: DollarSign },
+    { key: 'guba', label: '股吧讨论', icon: MessageCircle },
   ]
 
   // Render detail chart based on tab
@@ -306,6 +395,76 @@ export default function WatchlistPage() {
     return <div className="flex items-center justify-center h-64 text-gray-400 text-sm">暂无数据</div>
   }
 
+  // Render Guba discussion panel
+  const renderGubaPanel = () => {
+    return (
+      <div className="flex flex-col" style={{ height: 'calc(100vh - 380px)', minHeight: '360px' }}>
+        {/* Guba header bar */}
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] text-gray-400">
+            {detailStock?.name}吧 {gubaTotal > 0 && <>&middot; {gubaTotal > 10000 ? (gubaTotal / 10000).toFixed(0) + '万' : gubaTotal} 条帖子</>}
+          </span>
+          <button onClick={handleGubaRefresh} disabled={gubaLoading}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] text-gray-500 hover:text-[#513CC8] hover:bg-[#F0EDFA] transition">
+            <RefreshCw size={11} className={gubaLoading ? 'animate-spin' : ''} /> 刷新
+          </button>
+        </div>
+
+        {/* Discussion list with infinite scroll */}
+        <div ref={gubaScrollRef} onScroll={handleGubaScroll}
+          className="flex-1 overflow-y-auto space-y-0 pr-1">
+          {gubaLoading && gubaPosts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 size={24} className="animate-spin text-[#513CC8] mb-2" />
+              <span className="text-xs text-gray-400">加载股吧讨论...</span>
+            </div>
+          ) : gubaPosts.length === 0 ? (
+            <div className="text-center py-12 text-gray-400 text-xs">暂无讨论数据</div>
+          ) : (
+            <>
+              {gubaPosts.map((post, idx) => (
+                <a key={`${post.post_id}-${idx}`}
+                  href={post.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block px-3 py-2.5 hover:bg-[#F8F6FF] rounded-lg transition group border-b border-gray-50 last:border-0">
+                  {/* Title */}
+                  <div className="flex items-start gap-1.5">
+                    <p className="text-xs text-gray-800 font-medium leading-relaxed flex-1 line-clamp-2 group-hover:text-[#513CC8] transition">
+                      {post.title}
+                    </p>
+                    <ExternalLink size={10} className="text-gray-300 group-hover:text-[#513CC8] mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition" />
+                  </div>
+                  {/* Meta row */}
+                  <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400">
+                    <span className="font-medium text-gray-500 truncate max-w-[80px]">{post.author}</span>
+                    <span className="flex items-center gap-0.5"><Eye size={9} /> {formatReadCount(post.read_count)}</span>
+                    <span className="flex items-center gap-0.5"><MessageCircle size={9} /> {post.comment_count}</span>
+                    {post.forward_count > 0 && <span className="flex items-center gap-0.5"><Share2 size={9} /> {post.forward_count}</span>}
+                    {post.has_pic && <Image size={9} className="text-blue-400" />}
+                    {post.has_video && <Video size={9} className="text-red-400" />}
+                    <span className="ml-auto">{formatRelativeTime(post.publish_time)}</span>
+                  </div>
+                </a>
+              ))}
+
+              {/* Load more indicator */}
+              {gubaLoadingMore && (
+                <div className="flex items-center justify-center py-3">
+                  <Loader2 size={16} className="animate-spin text-[#513CC8] mr-2" />
+                  <span className="text-[10px] text-gray-400">加载更多...</span>
+                </div>
+              )}
+              {!gubaHasMore && gubaPosts.length > 0 && (
+                <div className="text-center py-3 text-[10px] text-gray-300">— 已加载全部 —</div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
       <div className="flex items-center justify-between">
@@ -416,7 +575,18 @@ export default function WatchlistPage() {
                           selected.has(s.code) ? 'bg-[#F0EDFA]/30 hover:bg-[#F0EDFA]/40' :
                           'hover:bg-gray-50'
                         }`}
-                        onClick={() => setDetailStock(isActive ? null : s)}
+                        onClick={() => {
+                          if (isActive) {
+                            setDetailStock(null)
+                            setGubaPosts([])
+                          } else {
+                            setDetailStock(s)
+                            setDetailTab('trend')
+                            setGubaPosts([])
+                            setGubaPage(1)
+                            setGubaHasMore(true)
+                          }
+                        }}
                       >
                         <td className="p-3" onClick={e => e.stopPropagation()}>
                           <input type="checkbox" checked={selected.has(s.code)} onChange={() => toggleSelect(s.code)}
@@ -520,12 +690,13 @@ export default function WatchlistPage() {
                 ))}
               </div>
 
-              {/* Chart area */}
+              {/* Chart area / Guba area */}
               <div className="min-h-[300px]">
-                {renderDetailChart()}
+                {detailTab === 'guba' ? renderGubaPanel() : renderDetailChart()}
               </div>
 
-              {/* Quick stats */}
+              {/* Quick stats (hide when guba tab is active) */}
+              {detailTab !== 'guba' && (
               <div className="grid grid-cols-4 gap-2 mt-4 pt-3 border-t border-gray-100">
                 <div className="text-center">
                   <p className="text-[10px] text-gray-400">最高</p>
@@ -544,6 +715,7 @@ export default function WatchlistPage() {
                   <p className={`text-xs font-bold ${(detailStock.retail_net || 0) >= 0 ? 'stock-up' : 'stock-down'}`}>{formatAmount(detailStock.retail_net)}</p>
                 </div>
               </div>
+              )}
             </div>
           </div>
         )}

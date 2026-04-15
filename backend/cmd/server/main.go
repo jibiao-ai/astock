@@ -76,6 +76,7 @@ func main() {
 		auth.GET("/market/dragon-tiger-hotmoney", h.GetDragonTigerHotMoney)
 		auth.GET("/market/hot-list", h.GetMarketHotList)
 		auth.GET("/market/kline-realtime", h.GetKLineRealtime)
+		auth.GET("/market/guba", h.GetGubaDiscussion)
 
 		// Watchlist
 		auth.GET("/watchlist", h.GetWatchlist)

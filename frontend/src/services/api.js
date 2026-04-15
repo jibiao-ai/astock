@@ -50,6 +50,7 @@ export const getRealTimeStats = () => api.get('/market/realtime-stats')
 export const getDragonTigerHotMoney = (params) => api.get('/market/dragon-tiger-hotmoney', { params })
 export const getMarketHotList = (params) => api.get('/market/hot-list', { params })
 export const getKLineRealtime = (params) => api.get('/market/kline-realtime', { params })
+export const getGubaDiscussion = (params) => api.get('/market/guba', { params })
 
 // Watchlist
 export const getWatchlist = () => api.get('/watchlist')
