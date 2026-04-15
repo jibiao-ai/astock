@@ -5,6 +5,7 @@ import (
 	"log"
 	"quantmind/internal/config"
 	"quantmind/internal/model"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
@@ -27,11 +28,39 @@ func InitDB(cfg *config.Config) {
 		dialector = mysql.Open(dsn)
 	}
 
-	DB, err = gorm.Open(dialector, &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
-	})
+	// Retry connection with exponential backoff (critical for Docker: MySQL may not be ready yet)
+	maxRetries := 30
+	retryInterval := 2 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		DB, err = gorm.Open(dialector, &gorm.Config{
+			Logger: logger.Default.LogMode(logger.Info),
+		})
+		if err == nil {
+			// Verify the connection is actually alive
+			sqlDB, pingErr := DB.DB()
+			if pingErr == nil {
+				pingErr = sqlDB.Ping()
+			}
+			if pingErr == nil {
+				if i > 0 {
+					log.Printf("Database connected successfully after %d retries", i)
+				}
+				break
+			}
+			err = pingErr
+		}
+
+		log.Printf("Database not ready (attempt %d/%d): %v — retrying in %v...", i+1, maxRetries, err, retryInterval)
+		time.Sleep(retryInterval)
+
+		// Cap backoff at 10 seconds
+		if retryInterval < 10*time.Second {
+			retryInterval = retryInterval * 3 / 2
+		}
+	}
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatalf("Failed to connect to database after %d attempts: %v", maxRetries, err)
 	}
 
 	// Auto migrate
