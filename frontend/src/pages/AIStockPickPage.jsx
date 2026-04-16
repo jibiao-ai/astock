@@ -83,7 +83,7 @@ export default function AIStockPickPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Target className="text-[#513CC8]" size={22} />
-            AI筛选股票
+            AI筛选股
           </h1>
           <p className="text-xs text-gray-500 mt-1">杨永兴隔夜套利法 - 尾盘选股八步筛选策略 | 每小时自动运行</p>
         </div>
@@ -681,11 +681,11 @@ function drawTrendChart(ctx, w, h, data) {
   maxP += padding
 
   // Background
-  ctx.fillStyle = '#1a1a2e'
+  ctx.fillStyle = '#FFFFFF'
   ctx.fillRect(0, 0, w, h)
 
   // Grid
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+  ctx.strokeStyle = 'rgba(0,0,0,0.06)'
   ctx.lineWidth = 0.5
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (chartH / 4) * i
@@ -699,13 +699,13 @@ function drawTrendChart(ctx, w, h, data) {
   if (preClose > 0 && preClose >= minP && preClose <= maxP) {
     const y = pad.top + (1 - (preClose - minP) / (maxP - minP)) * chartH
     ctx.setLineDash([4, 4])
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)'
     ctx.beginPath()
     ctx.moveTo(pad.left, y)
     ctx.lineTo(pad.left + chartW, y)
     ctx.stroke()
     ctx.setLineDash([])
-    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'
     ctx.font = '10px sans-serif'
     ctx.textAlign = 'right'
     ctx.fillText(`昨收 ${preClose.toFixed(2)}`, pad.left - 4, y + 3)
@@ -752,7 +752,7 @@ function drawTrendChart(ctx, w, h, data) {
   }
 
   // Y-axis labels
-  ctx.fillStyle = 'rgba(255,255,255,0.5)'
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'
   ctx.font = '10px monospace'
   ctx.textAlign = 'right'
   for (let i = 0; i <= 4; i++) {
@@ -816,11 +816,11 @@ function drawKlineChart(ctx, w, h, data) {
   const maxVol = Math.max(...parsed.map(k => k.vol)) || 1
 
   // Background
-  ctx.fillStyle = '#1a1a2e'
+  ctx.fillStyle = '#FFFFFF'
   ctx.fillRect(0, 0, w, h)
 
   // Grid
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+  ctx.strokeStyle = 'rgba(0,0,0,0.06)'
   ctx.lineWidth = 0.5
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (chartH / 4) * i
@@ -884,7 +884,7 @@ function drawKlineChart(ctx, w, h, data) {
   if (parsed.length >= 20) drawMA(20, '#A855F7')
 
   // Y-axis labels
-  ctx.fillStyle = 'rgba(255,255,255,0.5)'
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'
   ctx.font = '10px monospace'
   ctx.textAlign = 'right'
   for (let i = 0; i <= 4; i++) {
