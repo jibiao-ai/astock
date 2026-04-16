@@ -118,11 +118,12 @@ type StockQuote struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// SectorHeat - sector heat map data
+// SectorHeat - sector heat map data (板块 + 概念)
 type SectorHeat struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	Name       string    `gorm:"size:200" json:"name"`
 	Code       string    `gorm:"size:20;index" json:"code"`
+	Category   string    `gorm:"size:20;index;default:sector" json:"category"` // sector or concept
 	ChangePct  float64   `json:"change_pct"`
 	Volume     float64   `json:"volume"`
 	Amount     float64   `json:"amount"`
@@ -130,6 +131,7 @@ type SectorHeat struct {
 	FlowIn     float64   `json:"flow_in"`
 	FlowOut    float64   `json:"flow_out"`
 	NetFlow    float64   `json:"net_flow"`
+	NetPct     float64   `json:"net_pct"`
 	TradeDate  string    `gorm:"size:20;index" json:"trade_date"`
 	CreatedAt  time.Time `json:"created_at"`
 }

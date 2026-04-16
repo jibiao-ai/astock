@@ -126,10 +126,55 @@ func (h *Handler) GetMarketSentiment(c *gin.Context) {
 }
 
 func (h *Handler) GetSectorHeat(c *gin.Context) {
-	date := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
-	var sectors []model.SectorHeat
-	repository.DB.Where("trade_date = ?", date).Order("change_pct desc").Find(&sectors)
-	response.Success(c, sectors)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "30"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 30
+	}
+
+	today := time.Now().Format("2006-01-02")
+
+	// Try fetching real-time data first
+	allSectors := fetchAllSectorOrConcept("sector")
+
+	if len(allSectors) > 0 {
+		// Persist to DB
+		go persistSectorHeatData(allSectors, "sector", today)
+	} else {
+		// Fallback: read from DB
+		var dbRecords []model.SectorHeat
+		repository.DB.Where("trade_date = ? AND category = ?", today, "sector").Order("change_pct desc").Find(&dbRecords)
+		for _, r := range dbRecords {
+			allSectors = append(allSectors, gin.H{
+				"name": r.Name, "code": r.Code, "change_pct": r.ChangePct,
+				"net_flow": r.NetFlow, "flow_in": r.FlowIn, "flow_out": r.FlowOut,
+				"lead_stock": r.LeadStock, "price": r.Amount, "net_pct": r.NetPct,
+			})
+		}
+	}
+
+	// Paginate
+	total := len(allSectors)
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	paged := allSectors[start:end]
+
+	response.Success(c, gin.H{
+		"items":       paged,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": (total + pageSize - 1) / pageSize,
+	})
 }
 
 func (h *Handler) GetLimitUpBoard(c *gin.Context) {

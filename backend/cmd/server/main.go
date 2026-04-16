@@ -2,6 +2,9 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"quantmind/internal/config"
 	"quantmind/internal/handler"
@@ -134,6 +137,44 @@ func main() {
 		}
 	}
 
+	// Serve frontend static files from ../frontend/dist
+	distPath := "../frontend/dist"
+	if _, err := os.Stat(distPath); err != nil {
+		// Try relative to executable
+		execDir, _ := os.Executable()
+		distPath = filepath.Join(filepath.Dir(execDir), "..", "frontend", "dist")
+	}
+	if _, err := os.Stat(distPath); err == nil {
+		log.Printf("Serving frontend from: %s", distPath)
+		r.Use(func(c *gin.Context) {
+			// Skip API routes
+			if strings.HasPrefix(c.Request.URL.Path, "/api") {
+				c.Next()
+				return
+			}
+			// Try to serve static file
+			filePath := filepath.Join(distPath, c.Request.URL.Path)
+			if _, err := os.Stat(filePath); err == nil && !isDir(filePath) {
+				c.File(filePath)
+				c.Abort()
+				return
+			}
+			// Fallback to index.html for SPA routing
+			c.File(filepath.Join(distPath, "index.html"))
+			c.Abort()
+		})
+	} else {
+		log.Printf("Frontend dist not found at %s, serving API only", distPath)
+	}
+
 	log.Printf("QuantMind Server starting on port %s", cfg.ServerPort)
 	r.Run(":" + cfg.ServerPort)
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }

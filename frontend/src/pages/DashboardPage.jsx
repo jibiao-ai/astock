@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { getDashboard, getConceptHeat, getLimitUpDownDetails, getSectorFundFlow, getRealTimeStats, getDragonTigerHotMoney } from '../services/api'
-import { BarChart3, TrendingUp, TrendingDown, Activity, Flame, Crown, AlertTriangle, DollarSign, Users, Zap, ArrowUp, ArrowDown, RefreshCw, Lightbulb, Eye, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { getDashboard, getConceptHeat, getLimitUpDownDetails, getSectorFundFlow, getRealTimeStats, getDragonTigerHotMoney, getSectorHeat } from '../services/api'
+import { BarChart3, TrendingUp, TrendingDown, Activity, Flame, Crown, AlertTriangle, DollarSign, Users, Zap, ArrowUp, ArrowDown, RefreshCw, Lightbulb, Eye, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Maximize, Minimize } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid } from 'recharts'
 
 export default function DashboardPage() {
@@ -28,6 +28,15 @@ export default function DashboardPage() {
   // Board seal + broken pagination (5 per page)
   const [sealPage, setSealPage] = useState(1)
   const [brokenPage, setBrokenPage] = useState(1)
+  // Fullscreen
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const dashboardRef = useRef(null)
+  // Sector/Concept heat pagination (new API returns paginated data)
+  const [sectorHeatPage, setSectorHeatPage] = useState(1)
+  const [sectorHeatData, setSectorHeatData] = useState([])
+  const [sectorHeatTotal, setSectorHeatTotal] = useState(0)
+  const [conceptHeatPage, setConceptHeatPage] = useState(1)
+  const [conceptHeatTotal, setConceptHeatTotal] = useState(0)
 
   const SEAL_PAGE_SIZE = 5
   const BROKEN_PAGE_SIZE = 5
@@ -45,6 +54,24 @@ export default function DashboardPage() {
     }
     return dates
   })()
+
+  // Fullscreen toggle
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      const el = dashboardRef.current || document.documentElement
+      el.requestFullscreen?.() || el.webkitRequestFullscreen?.() || el.msRequestFullscreen?.()
+      setIsFullscreen(true)
+    } else {
+      document.exitFullscreen?.() || document.webkitExitFullscreen?.() || document.msExitFullscreen?.()
+      setIsFullscreen(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
 
   useEffect(() => { loadData() }, [date])
 
@@ -91,18 +118,24 @@ export default function DashboardPage() {
         return null
       }
 
-      const [dashRes, conceptRes, limitUpRes, limitDownRes, sectorFlowRes, conceptFlowRes, rtStatsRes, hotMoneyRes] = await Promise.all([
+      const [dashRes, conceptRes, limitUpRes, limitDownRes, sectorFlowRes, conceptFlowRes, rtStatsRes, hotMoneyRes, sectorHeatRes] = await Promise.all([
         retryFetch(() => getDashboard({ date })),
-        retryFetch(() => getConceptHeat()),
+        retryFetch(() => getConceptHeat({ page: 1, page_size: 100 })),
         retryFetch(() => getLimitUpDownDetails({ type: 'up' })),
         retryFetch(() => getLimitUpDownDetails({ type: 'down' })),
-        retryFetch(() => getSectorFundFlow({ category: 'sector' })),
-        retryFetch(() => getSectorFundFlow({ category: 'concept' })),
+        retryFetch(() => getSectorFundFlow({ category: 'sector', page: 1, page_size: 100 })),
+        retryFetch(() => getSectorFundFlow({ category: 'concept', page: 1, page_size: 100 })),
         retryFetch(() => getRealTimeStats()),
         retryFetch(() => getDragonTigerHotMoney({ page: 1, page_size: HOT_MONEY_PAGE_SIZE }), 3, 2000),
+        retryFetch(() => getSectorHeat({ page: 1, page_size: 100 })),
       ])
       if (dashRes?.code === 0) setData(dashRes.data)
-      if (conceptRes?.code === 0) setConceptData(conceptRes.data || [])
+      if (conceptRes?.code === 0) {
+        // New paginated format
+        const items = conceptRes.data?.items || conceptRes.data || []
+        setConceptData(items)
+        setConceptHeatTotal(conceptRes.data?.total || items.length)
+      }
       if (limitUpRes?.code === 0) setLimitUpStocks(limitUpRes.data?.stocks || [])
       if (limitDownRes?.code === 0) setLimitDownStocks(limitDownRes.data?.stocks || [])
       if (sectorFlowRes?.code === 0) setSectorFlows(sectorFlowRes.data?.flows || [])
@@ -113,6 +146,11 @@ export default function DashboardPage() {
         setHotMoneyDate(hotMoneyRes.data?.trade_date || '')
         setHotMoneyTotal(hotMoneyRes.data?.total || 0)
         setHotMoneyTotalPages(hotMoneyRes.data?.total_pages || 1)
+      }
+      if (sectorHeatRes?.code === 0) {
+        const items = sectorHeatRes.data?.items || []
+        setSectorHeatData(items)
+        setSectorHeatTotal(sectorHeatRes.data?.total || items.length)
       }
     } catch (e) { console.error(e) }
     setLoading(false)
@@ -135,7 +173,7 @@ export default function DashboardPage() {
   }
 
   const sentiments = data?.sentiments || []
-  const sectors = data?.sectors || []
+  const sectors = sectorHeatData.length > 0 ? sectorHeatData : (data?.sectors || [])
 
   // Prefer real-time limit_ups and brokens for Row 3
   const rtLimitUps = realTimeStats?.limit_ups || []
@@ -223,7 +261,7 @@ export default function DashboardPage() {
   )
 
   return (
-    <div className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
+    <div ref={dashboardRef} className="p-4 space-y-4 min-h-screen" style={{ background: '#F8F9FC' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -245,6 +283,11 @@ export default function DashboardPage() {
           <button onClick={loadData} disabled={loading}
             className="p-2 rounded-lg text-gray-400 hover:text-[#513CC8] hover:bg-[#F0EDFA] transition ml-2">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+          <button onClick={toggleFullscreen}
+            className="p-2 rounded-lg text-gray-400 hover:text-[#513CC8] hover:bg-[#F0EDFA] transition"
+            title={isFullscreen ? '退出全屏' : '全屏显示'}>
+            {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
           </button>
         </div>
       </div>
@@ -274,9 +317,9 @@ export default function DashboardPage() {
       {/* Row 1: Heat + Concept Heat + Sentiment */}
       <div className="grid grid-cols-12 gap-3">
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Flame size={16} style={{ color: '#513CC8' }} /> 热力板块</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Flame size={16} style={{ color: '#513CC8' }} /> 热力板块 <span className="text-[10px] text-gray-400 font-normal">({sectorHeatTotal || sectors.length}个)</span></h3>
           <div className="grid grid-cols-3 gap-1.5">
-            {sectors.slice(0, 12).map((s, i) => {
+            {sectors.slice((sectorHeatPage - 1) * 12, sectorHeatPage * 12).map((s, i) => {
               const intensity = Math.min(Math.abs(s.change_pct) / 4, 1)
               const bg = s.change_pct >= 0
                 ? `rgba(239,68,68,${0.08 + intensity * 0.25})`
@@ -292,12 +335,15 @@ export default function DashboardPage() {
               )
             })}
           </div>
+          {sectors.length > 12 && (
+            <PaginationBar page={sectorHeatPage} totalPages={Math.ceil(sectors.length / 12)} total={sectors.length} label="个板块" onPageChange={setSectorHeatPage} />
+          )}
         </div>
 
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Lightbulb size={16} style={{ color: '#F59E0B' }} /> 热力概念(实时)</h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Lightbulb size={16} style={{ color: '#F59E0B' }} /> 热力概念(实时) <span className="text-[10px] text-gray-400 font-normal">({conceptHeatTotal || conceptData.length}个)</span></h3>
           <div className="grid grid-cols-3 gap-1.5">
-            {conceptData.slice(0, 12).map((c, i) => {
+            {conceptData.slice((conceptHeatPage - 1) * 12, conceptHeatPage * 12).map((c, i) => {
               const intensity = Math.min(Math.abs(c.change_pct) / 4, 1)
               const bg = c.change_pct >= 0
                 ? `rgba(239,68,68,${0.08 + intensity * 0.25})`
@@ -316,6 +362,9 @@ export default function DashboardPage() {
               <div className="col-span-3 text-center py-4 text-gray-400 text-xs">暂无概念数据（非交易时段）</div>
             )}
           </div>
+          {conceptData.length > 12 && (
+            <PaginationBar page={conceptHeatPage} totalPages={Math.ceil(conceptData.length / 12)} total={conceptData.length} label="个概念" onPageChange={setConceptHeatPage} />
+          )}
         </div>
 
         <div className="col-span-4 glass-card p-4">
@@ -512,7 +561,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Row 3: Board Ladder (paginated 5/page) + Broken Stocks (paginated 5/page) + Sector Chart */}
+      {/* Row 3: Board Ladder (paginated 5/page) + Broken Stocks (paginated 5/page) + Rise/Fall Distribution */}
       <div className="grid grid-cols-12 gap-3">
         <div className="col-span-4 glass-card p-4">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Crown size={16} className="text-red-500" /> 涨停封板 · 连板天梯 <span className="text-[10px] text-gray-400 font-normal ml-1">(实时·每页5)</span></h3>
@@ -583,26 +632,42 @@ export default function DashboardPage() {
         </div>
 
         <div className="col-span-4 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><BarChart3 size={16} style={{ color: '#513CC8' }} /> 板块资金净流入(亿)</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={sectors.slice(0, 8)} layout="vertical">
-              <XAxis type="number" tick={{fontSize: 10, fill: '#9CA3AF'}} />
-              <YAxis type="category" dataKey="name" tick={{fontSize: 10, fill: '#6B7280'}} width={60} />
-              <Tooltip contentStyle={tooltipStyle}
-                formatter={(v) => [typeof v === 'number' ? v.toFixed(2) + '亿' : v, '净流入']} />
-              <Bar dataKey="net_flow" radius={[0,4,4,0]} name="net_flow">
-                {sectors.slice(0, 8).map((s, i) => (
-                  <Cell key={i} fill={s.net_flow >= 0 ? '#EF4444' : '#22C55E'} />
-                ))}
-              </Bar>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Zap size={16} style={{ color: '#513CC8' }} /> 涨跌分布 <span className="text-[10px] text-gray-400 font-normal">(实时)</span></h3>
+          <ResponsiveContainer width="100%" height={120}>
+            <PieChart>
+              <Pie data={[
+                { name: '上涨', value: sentiment.up_count || 0 },
+                { name: '下跌', value: sentiment.down_count || 0 },
+                { name: '平盘', value: sentiment.flat_count || 0 },
+              ]} cx="50%" cy="50%" innerRadius={30} outerRadius={48} dataKey="value">
+                <Cell fill="#EF4444" />
+                <Cell fill="#22C55E" />
+                <Cell fill="#D1D5DB" />
+              </Pie>
+              <Tooltip contentStyle={tooltipStyle} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex justify-center gap-4 text-[10px] mb-3">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span>上涨 {sentiment.up_count || 0}</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>下跌 {sentiment.down_count || 0}</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span>平盘 {sentiment.flat_count || 0}</span>
+          </div>
+          <h4 className="text-xs font-medium text-gray-600 mb-2">涨跌停趋势</h4>
+          <ResponsiveContainer width="100%" height={80}>
+            <BarChart data={sentiments.slice(-5)}>
+              <XAxis dataKey="trade_date" tick={{fontSize: 8, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
+              <YAxis tick={{fontSize: 8, fill: '#9CA3AF'}} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="limit_up_count" fill="#EF4444" radius={[2,2,0,0]} name="涨停" />
+              <Bar dataKey="limit_down_count" fill="#22C55E" radius={[2,2,0,0]} name="跌停" />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Row 4: Dragon Tiger Hot Money (PAGINATED 5/page, by trader name) + Charts */}
+      {/* Row 4: Dragon Tiger Hot Money (PAGINATED 5/page, by trader name) */}
       <div className="grid grid-cols-12 gap-3">
-        <div className="col-span-6 glass-card p-4">
+        <div className="col-span-12 glass-card p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-gray-800">
               <Users size={16} className="text-orange-500" /> 龙虎榜游资数据
@@ -681,42 +746,6 @@ export default function DashboardPage() {
             <PaginationBar page={hotMoneyPage} totalPages={hotMoneyTotalPages} total={hotMoneyTotal} label="家游资"
               onPageChange={(p) => { setHotMoneyPage(p); setExpandedTrader(null) }} />
           )}
-        </div>
-
-        <div className="col-span-3 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Zap size={16} style={{ color: '#513CC8' }} /> 涨跌分布 <span className="text-[10px] text-gray-400 font-normal">(实时)</span></h3>
-          <ResponsiveContainer width="100%" height={150}>
-            <PieChart>
-              <Pie data={[
-                { name: '上涨', value: sentiment.up_count || 0 },
-                { name: '下跌', value: sentiment.down_count || 0 },
-                { name: '平盘', value: sentiment.flat_count || 0 },
-              ]} cx="50%" cy="50%" innerRadius={35} outerRadius={55} dataKey="value">
-                <Cell fill="#EF4444" />
-                <Cell fill="#22C55E" />
-                <Cell fill="#D1D5DB" />
-              </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex justify-center gap-4 text-[10px]">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span>上涨 {sentiment.up_count || 0}</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span>下跌 {sentiment.down_count || 0}</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span>平盘 {sentiment.flat_count || 0}</span>
-          </div>
-        </div>
-
-        <div className="col-span-3 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 text-gray-800">涨跌停趋势</h3>
-          <ResponsiveContainer width="100%" height={150}>
-            <BarChart data={sentiments.slice(-5)}>
-              <XAxis dataKey="trade_date" tick={{fontSize: 9, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
-              <YAxis tick={{fontSize: 9, fill: '#9CA3AF'}} />
-              <Tooltip contentStyle={tooltipStyle} />
-              <Bar dataKey="limit_up_count" fill="#EF4444" radius={[2,2,0,0]} name="涨停" />
-              <Bar dataKey="limit_down_count" fill="#22C55E" radius={[2,2,0,0]} name="跌停" />
-            </BarChart>
-          </ResponsiveContainer>
         </div>
       </div>
 
