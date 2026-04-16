@@ -102,11 +102,11 @@ function ChipPeakChart({ klines, chips, summary }) {
     const kDrawH = klineH - padT - padB
 
     // ===== Background =====
-    ctx.fillStyle = '#1a1a2e'
+    ctx.fillStyle = '#FFFFFF'
     ctx.fillRect(0, 0, W, H)
 
     // ===== Grid lines =====
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)'
     ctx.lineWidth = 0.5
     const numGridH = 5
     for (let i = 0; i <= numGridH; i++) {
@@ -118,7 +118,7 @@ function ChipPeakChart({ klines, chips, summary }) {
     }
 
     // ===== Y-axis labels (price) =====
-    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'
     ctx.font = '9px monospace'
     ctx.textAlign = 'right'
     for (let i = 0; i <= numGridH; i++) {
@@ -195,7 +195,7 @@ function ChipPeakChart({ klines, chips, summary }) {
       if (l.val === null) return
       ctx.fillStyle = l.color
       ctx.fillRect(lx, 4, 12, 6)
-      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'
       ctx.textAlign = 'left'
       ctx.fillText(`${l.label}:${l.val.toFixed(2)}`, lx + 15, 10)
       lx += 85
@@ -219,7 +219,7 @@ function ChipPeakChart({ klines, chips, summary }) {
     }
 
     // ===== X-axis date labels =====
-    ctx.fillStyle = 'rgba(255,255,255,0.4)'
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'
     ctx.font = '8px monospace'
     ctx.textAlign = 'center'
     const labelInterval = Math.max(1, Math.floor(displayKlines.length / 6))
@@ -242,7 +242,7 @@ function ChipPeakChart({ klines, chips, summary }) {
     })
 
     // VOL label
-    ctx.fillStyle = 'rgba(255,255,255,0.3)'
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'
     ctx.font = '8px sans-serif'
     ctx.textAlign = 'left'
     ctx.fillText('VOL', padL, volTop + 8)
@@ -258,7 +258,7 @@ function ChipPeakChart({ klines, chips, summary }) {
       const latestPrice = summary.latest_price || displayKlines[displayKlines.length - 1]?.close || 0
 
       // Separator line
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)'
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)'
       ctx.lineWidth = 0.5
       ctx.beginPath()
       ctx.moveTo(chipX, padT)
@@ -266,7 +266,7 @@ function ChipPeakChart({ klines, chips, summary }) {
       ctx.stroke()
 
       // Label
-      ctx.fillStyle = 'rgba(255,255,255,0.4)'
+      ctx.fillStyle = 'rgba(0,0,0,0.4)'
       ctx.font = '8px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText('筹码分布', chipX + chipDrawW / 2 + 5, 10)
@@ -306,7 +306,7 @@ function ChipPeakChart({ klines, chips, summary }) {
       // Current price line across chip area
       if (latestPrice >= priceRange.min && latestPrice <= priceRange.max) {
         const priceY = priceToY(latestPrice)
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)'
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)'
         ctx.lineWidth = 0.5
         ctx.setLineDash([3, 2])
         ctx.beginPath()
@@ -326,7 +326,7 @@ function ChipPeakChart({ klines, chips, summary }) {
     // ===== Hover highlight =====
     if (hoveredIdx !== null && hoveredIdx >= 0 && hoveredIdx < displayKlines.length) {
       const x = padL + barGap + (barW + barGap) * hoveredIdx + barW / 2
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)'
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)'
       ctx.lineWidth = 0.5
       ctx.setLineDash([2, 2])
       ctx.beginPath()
@@ -373,32 +373,32 @@ function ChipPeakChart({ klines, chips, summary }) {
     <div className="space-y-3">
       {/* Summary stats bar */}
       {summary.avg_cost > 0 && (
-        <div className="grid grid-cols-5 gap-1.5 p-2.5 rounded-xl" style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #1a1a2e 100%)' }}>
+        <div className="grid grid-cols-5 gap-1.5 p-2.5 rounded-xl border border-gray-200" style={{ background: '#F8F9FB' }}>
           <div className="text-center">
             <p className="text-[9px] text-gray-400">获利比例</p>
-            <p className="text-xs font-bold text-red-400">{summary.profit_ratio?.toFixed(1)}%</p>
+            <p className="text-xs font-bold text-red-600">{summary.profit_ratio?.toFixed(1)}%</p>
           </div>
           <div className="text-center">
             <p className="text-[9px] text-gray-400">平均成本</p>
-            <p className="text-xs font-bold text-amber-400">{summary.avg_cost?.toFixed(2)}</p>
+            <p className="text-xs font-bold text-amber-600">{summary.avg_cost?.toFixed(2)}</p>
           </div>
           <div className="text-center">
             <p className="text-[9px] text-gray-400">90%筹码</p>
-            <p className="text-xs font-bold text-blue-400">{summary.chip_low_90?.toFixed(2)}-{summary.chip_high_90?.toFixed(2)}</p>
+            <p className="text-xs font-bold text-blue-600">{summary.chip_low_90?.toFixed(2)}-{summary.chip_high_90?.toFixed(2)}</p>
           </div>
           <div className="text-center">
             <p className="text-[9px] text-gray-400">集中度</p>
-            <p className="text-xs font-bold text-purple-400">{summary.concentration?.toFixed(1)}%</p>
+            <p className="text-xs font-bold text-purple-600">{summary.concentration?.toFixed(1)}%</p>
           </div>
           <div className="text-center">
             <p className="text-[9px] text-gray-400">最新价</p>
-            <p className="text-xs font-bold text-white">{summary.latest_price?.toFixed(2)}</p>
+            <p className="text-xs font-bold text-gray-900">{summary.latest_price?.toFixed(2)}</p>
           </div>
         </div>
       )}
 
       {/* Main chart area: Canvas-based K-line + Chip Peak */}
-      <div ref={containerRef} className="relative rounded-xl overflow-hidden" style={{ background: '#1a1a2e' }}>
+      <div ref={containerRef} className="relative rounded-xl overflow-hidden border border-gray-200" style={{ background: '#FFFFFF' }}>
         <canvas
           ref={canvasRef}
           onMouseMove={handleMouseMove}
@@ -408,20 +408,20 @@ function ChipPeakChart({ klines, chips, summary }) {
 
         {/* Floating tooltip */}
         {tooltipData && (
-          <div className="absolute top-2 left-12 bg-black/80 border border-gray-600 rounded-lg px-2.5 py-1.5 text-[10px] space-y-0.5 pointer-events-none z-10 backdrop-blur-sm">
-            <div className="text-gray-300 font-medium">{tooltipData.date}</div>
+          <div className="absolute top-2 left-12 bg-white/95 border border-gray-200 rounded-lg px-2.5 py-1.5 text-[10px] space-y-0.5 pointer-events-none z-10 shadow-md backdrop-blur-sm">
+            <div className="text-gray-700 font-medium">{tooltipData.date}</div>
             <div className="flex gap-3">
-              <span className="text-gray-400">开:<span className={tooltipData.close >= tooltipData.open ? 'text-red-400' : 'text-green-400'}>{tooltipData.open?.toFixed(2)}</span></span>
-              <span className="text-gray-400">收:<span className={tooltipData.close >= tooltipData.open ? 'text-red-400' : 'text-green-400'}>{tooltipData.close?.toFixed(2)}</span></span>
+              <span className="text-gray-500">开:<span className={tooltipData.close >= tooltipData.open ? 'text-red-600' : 'text-green-600'}>{tooltipData.open?.toFixed(2)}</span></span>
+              <span className="text-gray-500">收:<span className={tooltipData.close >= tooltipData.open ? 'text-red-600' : 'text-green-600'}>{tooltipData.close?.toFixed(2)}</span></span>
             </div>
             <div className="flex gap-3">
-              <span className="text-gray-400">高:<span className="text-red-400">{tooltipData.high?.toFixed(2)}</span></span>
-              <span className="text-gray-400">低:<span className="text-green-400">{tooltipData.low?.toFixed(2)}</span></span>
+              <span className="text-gray-500">高:<span className="text-red-600">{tooltipData.high?.toFixed(2)}</span></span>
+              <span className="text-gray-500">低:<span className="text-green-600">{tooltipData.low?.toFixed(2)}</span></span>
             </div>
             <div className="flex gap-3">
-              <span className="text-gray-400">量:<span className="text-gray-200">{(tooltipData.volume / 10000).toFixed(0)}万</span></span>
+              <span className="text-gray-500">量:<span className="text-gray-700">{(tooltipData.volume / 10000).toFixed(0)}万</span></span>
               {tooltipData.change_pct !== undefined && (
-                <span className="text-gray-400">幅:<span className={tooltipData.change_pct >= 0 ? 'text-red-400' : 'text-green-400'}>{tooltipData.change_pct >= 0 ? '+' : ''}{tooltipData.change_pct?.toFixed(2)}%</span></span>
+                <span className="text-gray-500">幅:<span className={tooltipData.change_pct >= 0 ? 'text-red-600' : 'text-green-600'}>{tooltipData.change_pct >= 0 ? '+' : ''}{tooltipData.change_pct?.toFixed(2)}%</span></span>
               )}
             </div>
           </div>
@@ -429,8 +429,8 @@ function ChipPeakChart({ klines, chips, summary }) {
 
         {/* Chip legend */}
         <div className="absolute bottom-1 right-2 flex items-center gap-3 text-[8px]">
-          <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: 'rgba(239,68,68,0.85)' }}></span><span className="text-gray-400">获利筹码</span></span>
-          <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: 'rgba(59,130,246,0.75)' }}></span><span className="text-gray-400">套牢筹码</span></span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: 'rgba(239,68,68,0.85)' }}></span><span className="text-gray-500">获利筹码</span></span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: 'rgba(59,130,246,0.75)' }}></span><span className="text-gray-500">套牢筹码</span></span>
         </div>
       </div>
     </div>

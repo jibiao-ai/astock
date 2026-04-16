@@ -10,7 +10,7 @@ const menuItems = [
   { key: 'realtime', label: '实时行情', icon: TrendingUp, group: '市场总览' },
   { key: 'watchlist', label: '自选个股', icon: Star, group: '市场总览' },
   { key: 'hot-list', label: '市场热榜', icon: Flame, group: '市场总览' },
-  { key: 'ai-stock-pick', label: 'AI筛选股票', icon: Target, group: '市场总览' },
+  { key: 'ai-stock-pick', label: 'AI筛选股', icon: Target, group: '市场总览' },
   { key: 'smart-ask', label: '智能问股', icon: MessageSquare, group: 'AI智能体' },
   { key: 'smart-diagnose', label: '智能诊股', icon: Stethoscope, group: 'AI智能体' },
   { key: 'main-flow', label: '主力动向', icon: Activity, group: 'AI智能体' },
