@@ -1,8 +1,441 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { getWatchlistQuotes, addWatchlistItem, removeWatchlistItem, getStockQuote, getTrendChart, getChipDistribution, getStockFundFlow, getDragonTigerHotMoney, getGubaDiscussion } from '../services/api'
 import { Plus, Trash2, RefreshCw, Star, Search, TrendingUp, TrendingDown, ArrowUpDown, X, BarChart3, Activity, DollarSign, Users, LineChart, MessageCircle, Eye, Share2, Image, Video, ExternalLink, Loader2 } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, LineChart as RLineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ComposedChart, ReferenceLine } from 'recharts'
 import toast from 'react-hot-toast'
+
+// ==================== ChipPeakChart Component ====================
+// A professional K-line candlestick chart with overlaid chip peak distribution bars
+// Mimics the standard A-stock chip peak (筹码峰) chart style
+function ChipPeakChart({ klines, chips, summary }) {
+  const canvasRef = useRef(null)
+  const containerRef = useRef(null)
+  const [hoveredIdx, setHoveredIdx] = useState(null)
+  const [tooltipData, setTooltipData] = useState(null)
+  const [containerWidth, setContainerWidth] = useState(500)
+
+  // ResizeObserver for responsive canvas
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width)
+      }
+    })
+    ro.observe(container)
+    setContainerWidth(container.getBoundingClientRect().width)
+    return () => ro.disconnect()
+  }, [])
+
+  // Display last 60 klines
+  const displayKlines = useMemo(() => klines.slice(-60), [klines])
+
+  // Calculate MA lines
+  const maData = useMemo(() => {
+    const calcMA = (data, period) => {
+      return data.map((_, i) => {
+        if (i < period - 1) return null
+        let sum = 0
+        for (let j = i - period + 1; j <= i; j++) sum += data[j].close
+        return sum / period
+      })
+    }
+    return {
+      ma5: calcMA(displayKlines, 5),
+      ma10: calcMA(displayKlines, 10),
+      ma20: calcMA(displayKlines, 20),
+    }
+  }, [displayKlines])
+
+  // Price range
+  const priceRange = useMemo(() => {
+    if (displayKlines.length === 0) return { min: 0, max: 1 }
+    let min = Infinity, max = -Infinity
+    displayKlines.forEach(k => {
+      if (k.low < min) min = k.low
+      if (k.high > max) max = k.high
+    })
+    const padding = (max - min) * 0.05
+    return { min: min - padding, max: max + padding }
+  }, [displayKlines])
+
+  // Volume range
+  const volRange = useMemo(() => {
+    if (displayKlines.length === 0) return { max: 1 }
+    let max = 0
+    displayKlines.forEach(k => { if (k.volume > max) max = k.volume })
+    return { max: max || 1 }
+  }, [displayKlines])
+
+  // Draw the chart on canvas
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || displayKlines.length === 0) return
+    const container = containerRef.current
+    if (!container) return
+
+    const dpr = window.devicePixelRatio || 1
+    const W = containerWidth || 500
+    const H = 340
+    canvas.width = W * dpr
+    canvas.height = H * dpr
+    canvas.style.width = W + 'px'
+    canvas.style.height = H + 'px'
+
+    const ctx = canvas.getContext('2d')
+    ctx.scale(dpr, dpr)
+    ctx.clearRect(0, 0, W, H)
+
+    // Layout: kline area (left 72%), chip area (right 28%), volume bar below
+    const klineW = Math.floor(W * 0.72)
+    const chipW = W - klineW
+    const klineH = 240 // candlestick area height
+    const volH = 60    // volume bar height
+    const gapH = 10    // gap between k-line and volume
+    const padL = 45     // left padding for Y axis labels
+    const padR = 5      // right padding
+    const padT = 15     // top padding
+    const padB = 20     // bottom padding for X axis labels
+
+    const kDrawW = klineW - padL - padR
+    const kDrawH = klineH - padT - padB
+
+    // ===== Background =====
+    ctx.fillStyle = '#1a1a2e'
+    ctx.fillRect(0, 0, W, H)
+
+    // ===== Grid lines =====
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+    ctx.lineWidth = 0.5
+    const numGridH = 5
+    for (let i = 0; i <= numGridH; i++) {
+      const y = padT + (kDrawH / numGridH) * i
+      ctx.beginPath()
+      ctx.moveTo(padL, y)
+      ctx.lineTo(klineW - padR, y)
+      ctx.stroke()
+    }
+
+    // ===== Y-axis labels (price) =====
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'
+    ctx.font = '9px monospace'
+    ctx.textAlign = 'right'
+    for (let i = 0; i <= numGridH; i++) {
+      const y = padT + (kDrawH / numGridH) * i
+      const price = priceRange.max - ((priceRange.max - priceRange.min) / numGridH) * i
+      ctx.fillText(price.toFixed(2), padL - 4, y + 3)
+    }
+
+    // Helper: price to Y
+    const priceToY = (price) => {
+      return padT + ((priceRange.max - price) / (priceRange.max - priceRange.min)) * kDrawH
+    }
+
+    // ===== Candlestick Chart =====
+    const barW = Math.max(2, Math.floor(kDrawW / displayKlines.length) - 1)
+    const barGap = (kDrawW - barW * displayKlines.length) / (displayKlines.length + 1)
+
+    displayKlines.forEach((k, i) => {
+      const x = padL + barGap + (barW + barGap) * i
+      const isUp = k.close >= k.open
+      const bodyTop = priceToY(Math.max(k.open, k.close))
+      const bodyBot = priceToY(Math.min(k.open, k.close))
+      const bodyH = Math.max(1, bodyBot - bodyTop)
+      const wickTop = priceToY(k.high)
+      const wickBot = priceToY(k.low)
+      const cx = x + barW / 2
+
+      // Wick (shadow)
+      ctx.strokeStyle = isUp ? '#ef4444' : '#22c55e'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(cx, wickTop)
+      ctx.lineTo(cx, wickBot)
+      ctx.stroke()
+
+      // Body
+      ctx.fillStyle = isUp ? '#ef4444' : '#22c55e'
+      if (bodyH <= 1) {
+        ctx.fillRect(x, bodyTop, barW, 1)
+      } else {
+        ctx.fillRect(x, bodyTop, barW, bodyH)
+      }
+    })
+
+    // ===== MA Lines =====
+    const drawMA = (maArr, color) => {
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      let started = false
+      maArr.forEach((v, i) => {
+        if (v === null) return
+        const x = padL + barGap + (barW + barGap) * i + barW / 2
+        const y = priceToY(v)
+        if (!started) { ctx.moveTo(x, y); started = true }
+        else ctx.lineTo(x, y)
+      })
+      ctx.stroke()
+    }
+
+    drawMA(maData.ma5, '#f59e0b')  // yellow
+    drawMA(maData.ma10, '#3b82f6') // blue
+    drawMA(maData.ma20, '#a855f7') // purple
+
+    // ===== MA Legend =====
+    ctx.font = '8px sans-serif'
+    const legends = [
+      { label: 'MA5', color: '#f59e0b', val: maData.ma5[maData.ma5.length - 1] },
+      { label: 'MA10', color: '#3b82f6', val: maData.ma10[maData.ma10.length - 1] },
+      { label: 'MA20', color: '#a855f7', val: maData.ma20[maData.ma20.length - 1] },
+    ]
+    let lx = padL + 5
+    legends.forEach(l => {
+      if (l.val === null) return
+      ctx.fillStyle = l.color
+      ctx.fillRect(lx, 4, 12, 6)
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.textAlign = 'left'
+      ctx.fillText(`${l.label}:${l.val.toFixed(2)}`, lx + 15, 10)
+      lx += 85
+    })
+
+    // ===== Average cost reference line =====
+    if (summary.avg_cost > 0 && summary.avg_cost >= priceRange.min && summary.avg_cost <= priceRange.max) {
+      const y = priceToY(summary.avg_cost)
+      ctx.strokeStyle = 'rgba(245,158,11,0.6)'
+      ctx.lineWidth = 1
+      ctx.setLineDash([4, 3])
+      ctx.beginPath()
+      ctx.moveTo(padL, y)
+      ctx.lineTo(klineW - padR, y)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.fillStyle = '#f59e0b'
+      ctx.font = '8px sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillText('成本' + summary.avg_cost.toFixed(2), klineW - padR - 60, y - 3)
+    }
+
+    // ===== X-axis date labels =====
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'
+    ctx.font = '8px monospace'
+    ctx.textAlign = 'center'
+    const labelInterval = Math.max(1, Math.floor(displayKlines.length / 6))
+    displayKlines.forEach((k, i) => {
+      if (i % labelInterval === 0 || i === displayKlines.length - 1) {
+        const x = padL + barGap + (barW + barGap) * i + barW / 2
+        ctx.fillText(k.date?.slice(5) || '', x, klineH - 2)
+      }
+    })
+
+    // ===== Volume Bars =====
+    const volTop = klineH + gapH
+    const volDrawH = volH - 10
+    displayKlines.forEach((k, i) => {
+      const x = padL + barGap + (barW + barGap) * i
+      const isUp = k.close >= k.open
+      const h = Math.max(1, (k.volume / volRange.max) * volDrawH)
+      ctx.fillStyle = isUp ? 'rgba(239,68,68,0.6)' : 'rgba(34,197,94,0.6)'
+      ctx.fillRect(x, volTop + volDrawH - h, barW, h)
+    })
+
+    // VOL label
+    ctx.fillStyle = 'rgba(255,255,255,0.3)'
+    ctx.font = '8px sans-serif'
+    ctx.textAlign = 'left'
+    ctx.fillText('VOL', padL, volTop + 8)
+
+    // ===== Chip Peak Distribution (right side) =====
+    if (chips.length > 0) {
+      const chipX = klineW
+      const chipDrawW = chipW - 10
+      const chipDrawH = kDrawH
+      const chipTop = padT
+
+      const maxPct = Math.max(...chips.map(c => c.percent || 0), 0.001)
+      const latestPrice = summary.latest_price || displayKlines[displayKlines.length - 1]?.close || 0
+
+      // Separator line
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)'
+      ctx.lineWidth = 0.5
+      ctx.beginPath()
+      ctx.moveTo(chipX, padT)
+      ctx.lineTo(chipX, padT + kDrawH)
+      ctx.stroke()
+
+      // Label
+      ctx.fillStyle = 'rgba(255,255,255,0.4)'
+      ctx.font = '8px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('筹码分布', chipX + chipDrawW / 2 + 5, 10)
+
+      // Draw each chip bar (horizontal, growing from right to left)
+      // Use gradient fills for professional look
+      const profitGrad = ctx.createLinearGradient(chipX, 0, chipX + chipDrawW, 0)
+      profitGrad.addColorStop(0, 'rgba(239, 68, 68, 0.2)')
+      profitGrad.addColorStop(1, 'rgba(239, 68, 68, 0.9)')
+
+      const lossGrad = ctx.createLinearGradient(chipX, 0, chipX + chipDrawW, 0)
+      lossGrad.addColorStop(0, 'rgba(59, 130, 246, 0.2)')
+      lossGrad.addColorStop(1, 'rgba(59, 130, 246, 0.85)')
+
+      chips.forEach((chip) => {
+        const price = chip.price || 0
+        if (price < priceRange.min || price > priceRange.max) return
+
+        const y = priceToY(price)
+        const barHeight = Math.max(1.5, chipDrawH / chips.length * 0.85)
+        const barLength = (chip.percent / maxPct) * chipDrawW * 0.85
+
+        const isProfit = price <= latestPrice
+
+        // Draw bar from right edge toward left
+        const barX = chipX + chipDrawW + 5 - barLength
+
+        if (isProfit) {
+          ctx.fillStyle = profitGrad
+        } else {
+          ctx.fillStyle = lossGrad
+        }
+
+        ctx.fillRect(barX, y - barHeight / 2, barLength, barHeight)
+      })
+
+      // Current price line across chip area
+      if (latestPrice >= priceRange.min && latestPrice <= priceRange.max) {
+        const priceY = priceToY(latestPrice)
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)'
+        ctx.lineWidth = 0.5
+        ctx.setLineDash([3, 2])
+        ctx.beginPath()
+        ctx.moveTo(chipX, priceY)
+        ctx.lineTo(W, priceY)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // Price label on chip area
+        ctx.fillStyle = '#fbbf24'
+        ctx.font = 'bold 8px monospace'
+        ctx.textAlign = 'right'
+        ctx.fillText(latestPrice.toFixed(2), W - 2, priceY - 3)
+      }
+    }
+
+    // ===== Hover highlight =====
+    if (hoveredIdx !== null && hoveredIdx >= 0 && hoveredIdx < displayKlines.length) {
+      const x = padL + barGap + (barW + barGap) * hoveredIdx + barW / 2
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)'
+      ctx.lineWidth = 0.5
+      ctx.setLineDash([2, 2])
+      ctx.beginPath()
+      ctx.moveTo(x, padT)
+      ctx.lineTo(x, H)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+  }, [displayKlines, chips, summary, priceRange, volRange, maData, hoveredIdx, containerWidth])
+
+  // Handle mouse move for tooltip
+  const handleMouseMove = useCallback((e) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const W = rect.width
+    const klineW = Math.floor(W * 0.72)
+    const padL = 45
+    const padR = 5
+    const kDrawW = klineW - padL - padR
+    const barW = Math.max(2, Math.floor(kDrawW / displayKlines.length) - 1)
+    const barGap = (kDrawW - barW * displayKlines.length) / (displayKlines.length + 1)
+
+    if (x >= padL && x <= klineW - padR) {
+      const idx = Math.floor((x - padL) / (barW + barGap))
+      if (idx >= 0 && idx < displayKlines.length) {
+        setHoveredIdx(idx)
+        setTooltipData(displayKlines[idx])
+        return
+      }
+    }
+    setHoveredIdx(null)
+    setTooltipData(null)
+  }, [displayKlines])
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredIdx(null)
+    setTooltipData(null)
+  }, [])
+
+  return (
+    <div className="space-y-3">
+      {/* Summary stats bar */}
+      {summary.avg_cost > 0 && (
+        <div className="grid grid-cols-5 gap-1.5 p-2.5 rounded-xl" style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #1a1a2e 100%)' }}>
+          <div className="text-center">
+            <p className="text-[9px] text-gray-400">获利比例</p>
+            <p className="text-xs font-bold text-red-400">{summary.profit_ratio?.toFixed(1)}%</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] text-gray-400">平均成本</p>
+            <p className="text-xs font-bold text-amber-400">{summary.avg_cost?.toFixed(2)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] text-gray-400">90%筹码</p>
+            <p className="text-xs font-bold text-blue-400">{summary.chip_low_90?.toFixed(2)}-{summary.chip_high_90?.toFixed(2)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] text-gray-400">集中度</p>
+            <p className="text-xs font-bold text-purple-400">{summary.concentration?.toFixed(1)}%</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[9px] text-gray-400">最新价</p>
+            <p className="text-xs font-bold text-white">{summary.latest_price?.toFixed(2)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Main chart area: Canvas-based K-line + Chip Peak */}
+      <div ref={containerRef} className="relative rounded-xl overflow-hidden" style={{ background: '#1a1a2e' }}>
+        <canvas
+          ref={canvasRef}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          style={{ cursor: 'crosshair', display: 'block', width: '100%', height: '340px' }}
+        />
+
+        {/* Floating tooltip */}
+        {tooltipData && (
+          <div className="absolute top-2 left-12 bg-black/80 border border-gray-600 rounded-lg px-2.5 py-1.5 text-[10px] space-y-0.5 pointer-events-none z-10 backdrop-blur-sm">
+            <div className="text-gray-300 font-medium">{tooltipData.date}</div>
+            <div className="flex gap-3">
+              <span className="text-gray-400">开:<span className={tooltipData.close >= tooltipData.open ? 'text-red-400' : 'text-green-400'}>{tooltipData.open?.toFixed(2)}</span></span>
+              <span className="text-gray-400">收:<span className={tooltipData.close >= tooltipData.open ? 'text-red-400' : 'text-green-400'}>{tooltipData.close?.toFixed(2)}</span></span>
+            </div>
+            <div className="flex gap-3">
+              <span className="text-gray-400">高:<span className="text-red-400">{tooltipData.high?.toFixed(2)}</span></span>
+              <span className="text-gray-400">低:<span className="text-green-400">{tooltipData.low?.toFixed(2)}</span></span>
+            </div>
+            <div className="flex gap-3">
+              <span className="text-gray-400">量:<span className="text-gray-200">{(tooltipData.volume / 10000).toFixed(0)}万</span></span>
+              {tooltipData.change_pct !== undefined && (
+                <span className="text-gray-400">幅:<span className={tooltipData.change_pct >= 0 ? 'text-red-400' : 'text-green-400'}>{tooltipData.change_pct >= 0 ? '+' : ''}{tooltipData.change_pct?.toFixed(2)}%</span></span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Chip legend */}
+        <div className="absolute bottom-1 right-2 flex items-center gap-3 text-[8px]">
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: 'rgba(239,68,68,0.85)' }}></span><span className="text-gray-400">获利筹码</span></span>
+          <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: 'rgba(59,130,246,0.75)' }}></span><span className="text-gray-400">套牢筹码</span></span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function WatchlistPage() {
   const [stocks, setStocks] = useState([])
@@ -232,7 +665,7 @@ export default function WatchlistPage() {
   // Detail tabs
   const detailTabs = [
     { key: 'trend', label: '分时走势', icon: Activity },
-    { key: 'chip', label: '资金流向', icon: BarChart3 },
+    { key: 'chip', label: '日K筹码峰', icon: BarChart3 },
     { key: 'fundflow', label: '主力资金', icon: DollarSign },
     { key: 'guba', label: '股吧讨论', icon: MessageCircle },
   ]
@@ -292,48 +725,13 @@ export default function WatchlistPage() {
 
     if (detailTab === 'chip' && chipData) {
       const klines = chipData.klines || []
+      const chips = chipData.chips || []
+      const summary = chipData.summary || {}
       if (klines.length === 0) {
-        return <div className="flex items-center justify-center h-64 text-gray-400 text-sm">暂无资金流向(筹码)数据</div>
+        return <div className="flex items-center justify-center h-64 text-gray-400 text-sm">暂无K线筹码数据</div>
       }
-      return (
-        <div>
-          <div className="flex items-center gap-3 mb-2 text-xs">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> 主力流入</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> 主力流出</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> 散户流入</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500"></span> 散户流出</span>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={klines.slice(-20)}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="date" tick={{fontSize: 9, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
-              <YAxis tick={{fontSize: 9, fill: '#9CA3AF'}} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => {
-                const labels = { main_in: '主力流入', main_out: '主力流出', retail_in: '散户流入', retail_out: '散户流出' }
-                return [(v || 0).toFixed(2) + '万', labels[name] || name]
-              }} />
-              <Bar dataKey="main_in" fill="#EF4444" name="main_in" radius={[2,2,0,0]} />
-              <Bar dataKey="main_out" fill="#22C55E" name="main_out" radius={[2,2,0,0]} />
-              <Bar dataKey="retail_in" fill="#3B82F6" name="retail_in" radius={[2,2,0,0]} />
-              <Bar dataKey="retail_out" fill="#F59E0B" name="retail_out" radius={[2,2,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          <ResponsiveContainer width="100%" height={140}>
-            <RLineChart data={klines.slice(-20)}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="date" tick={{fontSize: 9, fill: '#9CA3AF'}} tickFormatter={v => v?.slice(5)} />
-              <YAxis tick={{fontSize: 9, fill: '#9CA3AF'}} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => {
-                const labels = { main_net: '主力净流入', retail_net: '散户净流入' }
-                return [(v || 0).toFixed(2) + '万', labels[name] || name]
-              }} />
-              <ReferenceLine y={0} stroke="#D1D5DB" />
-              <Line type="monotone" dataKey="main_net" stroke="#EF4444" strokeWidth={2} name="main_net" dot={{ r: 2 }} />
-              <Line type="monotone" dataKey="retail_net" stroke="#3B82F6" strokeWidth={2} name="retail_net" dot={{ r: 2 }} />
-            </RLineChart>
-          </ResponsiveContainer>
-        </div>
-      )
+
+      return <ChipPeakChart klines={klines} chips={chips} summary={summary} />
     }
 
     if (detailTab === 'fundflow' && fundFlowData) {
