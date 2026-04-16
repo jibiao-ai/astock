@@ -866,3 +866,163 @@ func (h *Handler) GetAuditLogs(c *gin.Context) {
 
 // ==================== Utility: unused import fix ====================
 var _ = gorm.ErrRecordNotFound
+
+// ==================== Stock Picks (今日推荐) ====================
+
+// CreateStockPick - Admin creates a stock recommendation
+func (h *Handler) CreateStockPick(c *gin.Context) {
+	var req struct {
+		Code          string  `json:"code" binding:"required"`
+		Name          string  `json:"name"`
+		AttentionLow  float64 `json:"attention_low"`
+		AttentionHigh float64 `json:"attention_high"`
+		TargetLow     float64 `json:"target_low"`
+		TargetHigh    float64 `json:"target_high"`
+		Reason        string  `json:"reason"`
+		PickDate      string  `json:"pick_date"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误: 请提供股票代码")
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+
+	if req.PickDate == "" {
+		req.PickDate = time.Now().Format("2006-01-02")
+	}
+
+	// Auto-fetch stock name from Eastmoney if not provided
+	if req.Name == "" {
+		req.Name = req.Code
+	}
+
+	pick := model.StockPick{
+		Code:          req.Code,
+		Name:          req.Name,
+		AttentionLow:  req.AttentionLow,
+		AttentionHigh: req.AttentionHigh,
+		TargetLow:     req.TargetLow,
+		TargetHigh:    req.TargetHigh,
+		Reason:        req.Reason,
+		PickDate:      req.PickDate,
+		CreatedBy:     userID.(uint),
+		IsActive:      true,
+	}
+
+	if err := repository.DB.Create(&pick).Error; err != nil {
+		response.InternalError(c, "创建推荐失败")
+		return
+	}
+
+	response.Success(c, pick)
+}
+
+// UpdateStockPick - Admin updates a stock recommendation
+func (h *Handler) UpdateStockPick(c *gin.Context) {
+	id := c.Param("id")
+	var pick model.StockPick
+	if err := repository.DB.First(&pick, id).Error; err != nil {
+		response.BadRequest(c, "推荐记录不存在")
+		return
+	}
+
+	var req struct {
+		Code          string  `json:"code"`
+		Name          string  `json:"name"`
+		AttentionLow  float64 `json:"attention_low"`
+		AttentionHigh float64 `json:"attention_high"`
+		TargetLow     float64 `json:"target_low"`
+		TargetHigh    float64 `json:"target_high"`
+		Reason        string  `json:"reason"`
+		PickDate      string  `json:"pick_date"`
+		IsActive      *bool   `json:"is_active"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "参数错误")
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Code != "" {
+		updates["code"] = req.Code
+	}
+	if req.Name != "" {
+		updates["name"] = req.Name
+	}
+	if req.AttentionLow > 0 {
+		updates["attention_low"] = req.AttentionLow
+	}
+	if req.AttentionHigh > 0 {
+		updates["attention_high"] = req.AttentionHigh
+	}
+	if req.TargetLow > 0 {
+		updates["target_low"] = req.TargetLow
+	}
+	if req.TargetHigh > 0 {
+		updates["target_high"] = req.TargetHigh
+	}
+	if req.Reason != "" {
+		updates["reason"] = req.Reason
+	}
+	if req.PickDate != "" {
+		updates["pick_date"] = req.PickDate
+	}
+	if req.IsActive != nil {
+		updates["is_active"] = *req.IsActive
+	}
+
+	repository.DB.Model(&pick).Updates(updates)
+	repository.DB.First(&pick, id)
+	response.Success(c, pick)
+}
+
+// DeleteStockPick - Admin deletes a stock recommendation
+func (h *Handler) DeleteStockPick(c *gin.Context) {
+	id := c.Param("id")
+	if err := repository.DB.Delete(&model.StockPick{}, id).Error; err != nil {
+		response.InternalError(c, "删除失败")
+		return
+	}
+	response.Success(c, nil)
+}
+
+// ListStockPicks - Admin lists all stock picks with filters
+func (h *Handler) ListStockPicks(c *gin.Context) {
+	date := c.DefaultQuery("date", "")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+
+	query := repository.DB.Model(&model.StockPick{})
+	if date != "" {
+		query = query.Where("pick_date = ?", date)
+	}
+
+	var total int64
+	query.Count(&total)
+
+	var picks []model.StockPick
+	query.Order("pick_date DESC, created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&picks)
+
+	response.Success(c, gin.H{
+		"total": total,
+		"page":  page,
+		"items": picks,
+	})
+}
+
+// GetTodayPicks - All authenticated users: get today's active recommendations
+func (h *Handler) GetTodayPicks(c *gin.Context) {
+	today := time.Now().Format("2006-01-02")
+	date := c.DefaultQuery("date", today)
+
+	var picks []model.StockPick
+	repository.DB.Where("pick_date = ? AND is_active = ?", date, true).
+		Order("created_at DESC").Find(&picks)
+
+	response.Success(c, gin.H{
+		"date":  date,
+		"items": picks,
+		"count": len(picks),
+	})
+}
