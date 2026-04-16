@@ -96,4 +96,11 @@ export const deleteUser = (id) => api.delete(`/users/${id}`)
 // Audit
 export const getAuditLogs = (params) => api.get('/audit-logs', { params })
 
+// Stock Picks (今日推荐)
+export const getTodayPicks = (params) => api.get('/stock-picks/today', { params })
+export const listStockPicks = (params) => api.get('/stock-picks', { params })
+export const createStockPick = (data) => api.post('/stock-picks', data)
+export const updateStockPick = (id, data) => api.put(`/stock-picks/${id}`, data)
+export const deleteStockPick = (id) => api.delete(`/stock-picks/${id}`)
+
 export default api

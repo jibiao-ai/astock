@@ -78,6 +78,9 @@ func main() {
 		auth.GET("/market/kline-realtime", h.GetKLineRealtime)
 		auth.GET("/market/guba", h.GetGubaDiscussion)
 
+		// Today's stock picks (all users can read)
+		auth.GET("/stock-picks/today", h.GetTodayPicks)
+
 		// Watchlist
 		auth.GET("/watchlist", h.GetWatchlist)
 		auth.POST("/watchlist", h.AddWatchlistItem)
@@ -122,6 +125,12 @@ func main() {
 			admin.PUT("/users/:id", h.UpdateUser)
 			admin.DELETE("/users/:id", h.DeleteUser)
 			admin.GET("/audit-logs", h.GetAuditLogs)
+
+			// Stock picks management (admin only)
+			admin.GET("/stock-picks", h.ListStockPicks)
+			admin.POST("/stock-picks", h.CreateStockPick)
+			admin.PUT("/stock-picks/:id", h.UpdateStockPick)
+			admin.DELETE("/stock-picks/:id", h.DeleteStockPick)
 		}
 	}
 

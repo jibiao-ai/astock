@@ -239,6 +239,24 @@ type AuditLog struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// StockPick - 今日推荐股票 (admin推送给所有用户)
+type StockPick struct {
+	ID            uint           `gorm:"primaryKey" json:"id"`
+	Code          string         `gorm:"size:20;not null" json:"code"`
+	Name          string         `gorm:"size:100" json:"name"`
+	AttentionLow  float64        `json:"attention_low"`  // 建议关注区间 - 下限
+	AttentionHigh float64        `json:"attention_high"` // 建议关注区间 - 上限
+	TargetLow     float64        `json:"target_low"`     // 目标区间 - 下限
+	TargetHigh    float64        `json:"target_high"`    // 目标区间 - 上限
+	Reason        string         `gorm:"type:text" json:"reason"`
+	PickDate      string         `gorm:"size:20;index" json:"pick_date"`
+	CreatedBy     uint           `json:"created_by"`
+	IsActive      bool           `gorm:"default:true" json:"is_active"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
 // TaskLog - async task log
 type TaskLog struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`

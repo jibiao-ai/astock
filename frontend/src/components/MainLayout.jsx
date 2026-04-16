@@ -1,5 +1,6 @@
 import useStore from '../store/useStore'
 import Sidebar from './Sidebar'
+import TodayPicksPopup from './TodayPicksPopup'
 import DashboardPage from '../pages/DashboardPage'
 import RealtimePage from '../pages/RealtimePage'
 import ChatPage from '../pages/ChatPage'
@@ -11,6 +12,7 @@ import UsersPage from '../pages/UsersPage'
 import AuditLogPage from '../pages/AuditLogPage'
 import WatchlistPage from '../pages/WatchlistPage'
 import HotListPage from '../pages/HotListPage'
+import StockPickPage from '../pages/StockPickPage'
 
 const pageMap = {
   'dashboard': DashboardPage,
@@ -23,6 +25,7 @@ const pageMap = {
   'quant-expert': () => <ChatPage agentType="quant_expert" />,
   'strategies': StrategiesPage,
   'signals': SignalsPage,
+  'stock-picks': StockPickPage,
   'agents': AgentsPage,
   'ai-models': AIModelsPage,
   'users': UsersPage,
@@ -41,6 +44,7 @@ export default function MainLayout() {
           <PageComponent />
         </div>
       </div>
+      <TodayPicksPopup />
     </div>
   )
 }

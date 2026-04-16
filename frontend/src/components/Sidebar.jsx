@@ -2,7 +2,7 @@ import useStore from '../store/useStore'
 import { 
   LayoutDashboard, TrendingUp, Brain, MessageSquare, Stethoscope, 
   Crown, BarChart3, Settings, Users, Shield, ChevronLeft, ChevronRight,
-  Activity, Zap, Bot, Database, FileText, LogOut, Star, Flame
+  Activity, Zap, Bot, Database, FileText, LogOut, Star, Flame, Megaphone
 } from 'lucide-react'
 
 const menuItems = [
@@ -16,6 +16,7 @@ const menuItems = [
   { key: 'quant-expert', label: '量化专家', icon: Brain, group: 'AI智能体' },
   { key: 'strategies', label: '策略中心', icon: Crown, group: '量化策略' },
   { key: 'signals', label: '策略信号', icon: Zap, group: '量化策略' },
+  { key: 'stock-picks', label: '今日推荐', icon: Megaphone, group: '系统管理', adminOnly: true },
   { key: 'agents', label: '智能体管理', icon: Bot, group: '系统管理' },
   { key: 'ai-models', label: 'AI模型管理', icon: Database, group: '系统管理' },
   { key: 'users', label: '用户管理', icon: Users, group: '系统管理' },
@@ -56,7 +57,7 @@ export default function Sidebar() {
             {!sidebarCollapsed && (
               <div className="px-4 py-2 text-[10px] text-gray-400 uppercase tracking-wider font-medium">{group}</div>
             )}
-            {menuItems.filter(i => i.group === group).map(item => {
+            {menuItems.filter(i => i.group === group).filter(i => !i.adminOnly || user?.role === 'admin').map(item => {
               const Icon = item.icon
               const active = currentPage === item.key
               return (
