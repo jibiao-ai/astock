@@ -13,12 +13,14 @@ import AuditLogPage from '../pages/AuditLogPage'
 import WatchlistPage from '../pages/WatchlistPage'
 import HotListPage from '../pages/HotListPage'
 import StockPickPage from '../pages/StockPickPage'
+import AIStockPickPage from '../pages/AIStockPickPage'
 
 const pageMap = {
   'dashboard': DashboardPage,
   'realtime': RealtimePage,
   'watchlist': WatchlistPage,
   'hot-list': HotListPage,
+  'ai-stock-pick': AIStockPickPage,
   'smart-ask': () => <ChatPage agentType="smart_ask" />,
   'smart-diagnose': () => <ChatPage agentType="smart_diagnose" />,
   'main-flow': () => <ChatPage agentType="main_flow" />,

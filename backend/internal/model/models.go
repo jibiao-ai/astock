@@ -272,3 +272,48 @@ type TaskLog struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// AIStockPick - AI筛选股票结果 (杨永兴隔夜套利法八步筛选)
+type AIStockPick struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	BatchID      string    `gorm:"size:50;index" json:"batch_id"`        // 批次ID: 20260416_1430
+	Code         string    `gorm:"size:20;index" json:"code"`            // 股票代码
+	Name         string    `gorm:"size:100" json:"name"`                 // 股票名称
+	Industry     string    `gorm:"size:100" json:"industry"`             // 所属行业
+	ClosePrice   float64   `json:"close_price"`                          // 收盘价
+	ChangePct    float64   `json:"change_pct"`                           // 涨幅%
+	TurnoverRate float64   `json:"turnover_rate"`                        // 换手率%
+	VolumeRatio  float64   `json:"volume_ratio"`                         // 量比
+	TotalMV      float64   `json:"total_mv"`                             // 总市值(亿)
+	Amount       float64   `json:"amount"`                               // 成交额(亿)
+	Open         float64   `json:"open"`                                 // 开盘价
+	High         float64   `json:"high"`                                 // 最高价
+	Low          float64   `json:"low"`                                  // 最低价
+	PreClose     float64   `json:"pre_close"`                            // 昨收
+	Concept      string    `gorm:"size:500" json:"concept"`              // 所属概念
+	Score        float64   `json:"score"`                                // 综合评分
+	PassedSteps  string    `gorm:"size:50" json:"passed_steps"`          // 通过的步骤 e.g. "1,2,3,4,5,6"
+	Note         string    `gorm:"type:text" json:"note"`                // 筛选备注
+	TradeDate    string    `gorm:"size:20;index" json:"trade_date"`      // 交易日期
+	ScreenTime   string    `gorm:"size:20" json:"screen_time"`           // 筛选时间 HH:MM
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// AIStockPickBatch - AI筛选批次记录
+type AIStockPickBatch struct {
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	BatchID        string    `gorm:"size:50;uniqueIndex" json:"batch_id"`
+	TradeDate      string    `gorm:"size:20;index" json:"trade_date"`
+	ScreenTime     string    `gorm:"size:20" json:"screen_time"`
+	TotalStocks    int       `json:"total_stocks"`       // 全市场股票数
+	MainBoard      int       `json:"main_board"`         // 主板股票数
+	PctFilter      int       `json:"pct_filter"`         // 涨幅筛选后
+	LimitFilter    int       `json:"limit_filter"`       // 涨停筛选后
+	VolumeFilter   int       `json:"volume_filter"`      // 量比筛选后
+	TurnoverFilter int       `json:"turnover_filter"`    // 换手筛选后
+	MarketCapFilter int      `json:"market_cap_filter"`  // 市值筛选后
+	ResultCount    int       `json:"result_count"`       // 最终结果数
+	Status         string    `gorm:"size:20;default:completed" json:"status"` // running, completed, failed
+	ErrorMsg       string    `gorm:"type:text" json:"error_msg"`
+	CreatedAt      time.Time `json:"created_at"`
+}

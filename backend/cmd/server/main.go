@@ -29,6 +29,9 @@ func main() {
 	// Seed demo market data for past 7 days
 	handler.SeedDemoMarketData()
 
+	// Start AI Stock Pick hourly scheduler
+	handler.StartAIStockPickScheduler()
+
 	// Gin
 	if cfg.GinMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
@@ -80,6 +83,13 @@ func main() {
 		auth.GET("/market/hot-list", h.GetMarketHotList)
 		auth.GET("/market/kline-realtime", h.GetKLineRealtime)
 		auth.GET("/market/guba", h.GetGubaDiscussion)
+
+		// AI Stock Pick (杨永兴隔夜套利法)
+		auth.GET("/market/ai-stock-picks", h.GetAIStockPicks)
+		auth.GET("/market/ai-stock-picks/batches", h.GetAIStockPickBatches)
+		auth.POST("/market/ai-stock-picks/run", h.RunAIStockPick)
+		auth.GET("/market/ai-stock-picks/detail", h.GetAIStockPickDetail)
+		auth.GET("/market/ai-stock-picks/stats", h.GetAIStockPickStats)
 
 		// Today's stock picks (all users can read)
 		auth.GET("/stock-picks/today", h.GetTodayPicks)

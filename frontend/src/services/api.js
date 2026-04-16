@@ -103,4 +103,11 @@ export const createStockPick = (data) => api.post('/stock-picks', data)
 export const updateStockPick = (id, data) => api.put(`/stock-picks/${id}`, data)
 export const deleteStockPick = (id) => api.delete(`/stock-picks/${id}`)
 
+// AI Stock Pick (杨永兴隔夜套利法)
+export const getAIStockPicks = (params) => api.get('/market/ai-stock-picks', { params })
+export const getAIStockPickBatches = (params) => api.get('/market/ai-stock-picks/batches', { params })
+export const runAIStockPick = (params) => api.post('/market/ai-stock-picks/run', null, { params })
+export const getAIStockPickDetail = (params) => api.get('/market/ai-stock-picks/detail', { params })
+export const getAIStockPickStats = () => api.get('/market/ai-stock-picks/stats')
+
 export default api
