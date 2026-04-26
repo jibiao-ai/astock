@@ -94,6 +94,16 @@ type Message struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+// SystemConfig - system configuration stored in DB
+type SystemConfig struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	ConfigKey   string    `gorm:"size:100;uniqueIndex;not null" json:"config_key"`
+	ConfigValue string    `gorm:"type:text" json:"config_value"`
+	Description string    `gorm:"size:500" json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // StockQuote - real-time stock data storage
 type StockQuote struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`

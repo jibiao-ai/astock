@@ -102,9 +102,7 @@ func parseTrendData(body []byte) gin.H {
 	if pc, ok := data["preClose"].(float64); ok {
 		preClose = pc
 	}
-	if preClose > 100 {
-		preClose /= 100
-	}
+	// Note: preClose from Eastmoney trend API is in yuan, no scaling needed
 
 	name := ""
 	if n, ok := data["name"].(string); ok {
@@ -1971,8 +1969,30 @@ func fetchDatacenterAPIWithRetry(url string, maxRetries int) ([]byte, error) {
 	return nil, fmt.Errorf("datacenter API failed after %d retries: %v", maxRetries, lastErr)
 }
 
-// fetchBatchQuotes fetches multiple stock quotes from Eastmoney
+// fetchBatchQuotes fetches multiple stock quotes using Tushare (primary) with Eastmoney fallback
 func fetchBatchQuotes(codes []string) map[string]*model.StockQuote {
+	// Use Tushare as primary data source to fix price bugs
+	result := fetchBatchQuotesTushare(codes)
+
+	// Check if we got valid data for at least some codes
+	validCount := 0
+	for _, q := range result {
+		if q.Price > 0 {
+			validCount++
+		}
+	}
+
+	if validCount > 0 {
+		return result
+	}
+
+	// Fallback to Eastmoney only if Tushare returned nothing
+	log.Printf("[fetchBatchQuotes] Tushare returned no data, falling back to Eastmoney")
+	return fetchBatchQuotesEastmoney(codes)
+}
+
+// fetchBatchQuotesEastmoney is the original Eastmoney implementation (kept as fallback)
+func fetchBatchQuotesEastmoney(codes []string) map[string]*model.StockQuote {
 	result := make(map[string]*model.StockQuote)
 
 	secids := []string{}
@@ -2024,24 +2044,11 @@ func fetchBatchQuotes(codes []string) map[string]*model.StockQuote {
 		code := safeString(d, "f12")
 		price := safeFloat(d, "f2")
 		preClose := safeFloat(d, "f18")
-		if price > 1000 {
-			price /= 100
-		}
-		if preClose > 1000 {
-			preClose /= 100
-		}
+		// Note: Eastmoney returns prices in yuan directly, no scaling needed
+		// The previous /100 hack was incorrect and caused bugs for high-price stocks
 		high := safeFloat(d, "f15")
 		low := safeFloat(d, "f16")
 		open := safeFloat(d, "f17")
-		if high > 1000 {
-			high /= 100
-		}
-		if low > 1000 {
-			low /= 100
-		}
-		if open > 1000 {
-			open /= 100
-		}
 
 		change := price - preClose
 		changePct := 0.0
@@ -2073,8 +2080,20 @@ func fetchBatchQuotes(codes []string) map[string]*model.StockQuote {
 	return result
 }
 
-// fetch5DayClose fetches recent 5 trading day close prices
+// fetch5DayClose fetches recent 5 trading day close prices via Tushare (with Eastmoney fallback)
 func fetch5DayClose(code string) []gin.H {
+	// Try Tushare first
+	result := fetch5DayCloseTushare(code)
+	if len(result) > 0 {
+		return result
+	}
+
+	// Fallback to Eastmoney
+	return fetch5DayCloseEastmoney(code)
+}
+
+// fetch5DayCloseEastmoney is the original Eastmoney implementation (kept as fallback)
+func fetch5DayCloseEastmoney(code string) []gin.H {
 	secid := buildSecID(code)
 	url := fmt.Sprintf("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=5", secid)
 
@@ -2499,8 +2518,34 @@ type quoteWithCap struct {
 	Concept   string
 }
 
-// fetchBatchQuotesWithMarketCap fetches batch quotes including market cap (f20) and concept (f100)
+// fetchBatchQuotesWithMarketCap fetches batch quotes including market cap
+// Uses Tushare as primary source, falls back to Eastmoney
 func fetchBatchQuotesWithMarketCap(codes []string) map[string]*quoteWithCap {
+	result := make(map[string]*quoteWithCap)
+	if len(codes) == 0 {
+		return result
+	}
+
+	// Try Tushare first
+	result = fetchBatchQuotesWithMarketCapTushare(codes)
+	validCount := 0
+	for _, q := range result {
+		if q.Price > 0 {
+			validCount++
+		}
+	}
+	if validCount > 0 {
+		log.Printf("[BatchQuoteCap] Tushare returned %d/%d valid quotes", validCount, len(codes))
+		return result
+	}
+
+	// Fallback to Eastmoney
+	log.Printf("[BatchQuoteCap] Tushare returned no data, falling back to Eastmoney")
+	return fetchBatchQuotesWithMarketCapEastmoney(codes)
+}
+
+// fetchBatchQuotesWithMarketCapEastmoney is the Eastmoney fallback implementation
+func fetchBatchQuotesWithMarketCapEastmoney(codes []string) map[string]*quoteWithCap {
 	result := make(map[string]*quoteWithCap)
 	if len(codes) == 0 {
 		return result
@@ -2550,20 +2595,11 @@ func fetchBatchQuotesWithMarketCap(codes []string) map[string]*quoteWithCap {
 			}
 			code := safeString(d, "f12")
 			price := safeFloat(d, "f2")
-			preClose := safeFloat(d, "f18")
-			// Eastmoney sometimes returns cents
-			if price > 1000 {
-				price /= 100
-			}
-			if preClose > 1000 {
-				preClose /= 100
-			}
+			_ = safeFloat(d, "f18") // preClose - not used here but kept for reference
+			// Note: Eastmoney returns prices in yuan directly, no scaling needed
+			// The previous /100 hack was incorrect and caused bugs for high-price stocks
 
 			changePct := safeFloat(d, "f3")
-			// f3 may be in basis points (x1000) or percentage
-			if changePct > 100 || changePct < -100 {
-				changePct /= 100
-			}
 
 			marketCapRaw := safeFloat(d, "f20")
 			// f20 is in yuan, convert to 亿
@@ -2586,7 +2622,7 @@ func fetchBatchQuotesWithMarketCap(codes []string) map[string]*quoteWithCap {
 
 // ==================== Enhanced K-Line from Eastmoney ====================
 
-// GetKLineRealtime returns real-time K-line data from Eastmoney for any period
+// GetKLineRealtime returns K-line data using Tushare (daily/weekly/monthly) with Eastmoney fallback for intraday
 // Supports: 1min(1), 5min(5), 15min(15), 30min(30), 60min(60), day(101), week(102), month(103)
 func (h *Handler) GetKLineRealtime(c *gin.Context) {
 	code := c.Query("code")
@@ -2601,6 +2637,24 @@ func (h *Handler) GetKLineRealtime(c *gin.Context) {
 		limit = 120
 	}
 
+	// For daily/weekly/monthly, use Tushare
+	switch period {
+	case "day", "daily", "101", "week", "weekly", "102", "month", "monthly", "103":
+		result := fetchKLineTushare(code, period, limit)
+		// Check if tushare returned data
+		if klines, ok := result["klines"].([]gin.H); ok && len(klines) > 0 {
+			response.Success(c, result)
+			return
+		}
+		log.Printf("[GetKLineRealtime] Tushare returned no data for %s period=%s, falling back to Eastmoney", code, period)
+	}
+
+	// Fallback to Eastmoney for intraday or when Tushare fails
+	h.getKLineRealtimeEastmoney(c, code, period, limit)
+}
+
+// getKLineRealtimeEastmoney is the original Eastmoney K-line implementation (fallback)
+func (h *Handler) getKLineRealtimeEastmoney(c *gin.Context, code string, period string, limit int) {
 	secid := buildSecID(code)
 
 	// Map period names to Eastmoney klt values
