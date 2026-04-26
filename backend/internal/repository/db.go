@@ -85,6 +85,7 @@ func InitDB(cfg *config.Config) {
 		&model.StockPick{},
 		&model.AIStockPick{},
 		&model.AIStockPickBatch{},
+		&model.SystemConfig{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)

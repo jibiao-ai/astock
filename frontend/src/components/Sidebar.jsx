@@ -22,6 +22,7 @@ const menuItems = [
   { key: 'ai-models', label: 'AI模型管理', icon: Database, group: '系统管理' },
   { key: 'users', label: '用户管理', icon: Users, group: '系统管理' },
   { key: 'audit-logs', label: '审计日志', icon: Shield, group: '系统管理' },
+  { key: 'settings', label: '系统设置', icon: Settings, group: '系统管理', adminOnly: true },
 ]
 
 export default function Sidebar() {

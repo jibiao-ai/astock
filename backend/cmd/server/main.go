@@ -139,6 +139,10 @@ func main() {
 			admin.DELETE("/users/:id", h.DeleteUser)
 			admin.GET("/audit-logs", h.GetAuditLogs)
 
+			// System settings (admin only)
+			admin.GET("/settings", h.GetSystemSettings)
+			admin.PUT("/settings", h.UpdateSystemSettings)
+
 			// Stock picks management (admin only)
 			admin.GET("/stock-picks", h.ListStockPicks)
 			admin.POST("/stock-picks", h.CreateStockPick)

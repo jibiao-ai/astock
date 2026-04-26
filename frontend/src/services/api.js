@@ -110,4 +110,8 @@ export const runAIStockPick = (params) => api.post('/market/ai-stock-picks/run',
 export const getAIStockPickDetail = (params) => api.get('/market/ai-stock-picks/detail', { params })
 export const getAIStockPickStats = () => api.get('/market/ai-stock-picks/stats')
 
+// System Settings
+export const getSystemSettings = () => api.get('/settings')
+export const updateSystemSettings = (data) => api.put('/settings', data)
+
 export default api

@@ -218,7 +218,7 @@ func (h *Handler) GetBoardLadder(c *gin.Context) {
 
 func (h *Handler) GetStockQuote(c *gin.Context) {
 	code := c.Query("code")
-	source := c.DefaultQuery("source", "sina")
+	source := c.DefaultQuery("source", "tushare")
 	if code == "" {
 		response.BadRequest(c, "请提供股票代码")
 		return
@@ -227,7 +227,7 @@ func (h *Handler) GetStockQuote(c *gin.Context) {
 	// Try to get from database first (cached)
 	var quote model.StockQuote
 	today := time.Now().Format("2006-01-02")
-	err := repository.DB.Where("code = ? AND trade_date = ? AND source = ?", code, today, source).
+	err := repository.DB.Where("code = ? AND trade_date = ?", code, today).
 		Order("created_at desc").First(&quote).Error
 
 	if err == nil {
@@ -235,7 +235,17 @@ func (h *Handler) GetStockQuote(c *gin.Context) {
 		return
 	}
 
-	// Fetch from external source
+	// Try Tushare first
+	tushareQuote := fetchSingleStockQuoteTushare(code)
+	if tushareQuote != nil && tushareQuote.Price > 0 {
+		tushareQuote.Source = "tushare"
+		tushareQuote.TradeDate = today
+		repository.DB.Create(tushareQuote)
+		response.Success(c, tushareQuote)
+		return
+	}
+
+	// Fallback to external source
 	quoteData, fetchErr := fetchQuoteFromSource(code, source)
 	if fetchErr != nil {
 		response.InternalError(c, "获取行情数据失败: "+fetchErr.Error())
@@ -352,13 +362,7 @@ func parseQuoteResponse(code, source, body string) *model.StockQuote {
 				quote.Volume, _ = data["f47"].(float64)
 				quote.Amount, _ = data["f48"].(float64)
 				quote.PreClose, _ = data["f60"].(float64)
-				if quote.Price > 100 { // eastmoney returns price in cents
-					quote.Price /= 100
-					quote.High /= 100
-					quote.Low /= 100
-					quote.Open /= 100
-					quote.PreClose /= 100
-				}
+				// Note: Eastmoney returns prices in yuan directly, no scaling needed
 				if quote.PreClose > 0 {
 					quote.Change = quote.Price - quote.PreClose
 					quote.ChangePct = (quote.Change / quote.PreClose) * 100

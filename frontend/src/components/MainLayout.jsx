@@ -10,6 +10,7 @@ import AgentsPage from '../pages/AgentsPage'
 import AIModelsPage from '../pages/AIModelsPage'
 import UsersPage from '../pages/UsersPage'
 import AuditLogPage from '../pages/AuditLogPage'
+import SettingsPage from '../pages/SettingsPage'
 import WatchlistPage from '../pages/WatchlistPage'
 import HotListPage from '../pages/HotListPage'
 import StockPickPage from '../pages/StockPickPage'
@@ -32,6 +33,7 @@ const pageMap = {
   'ai-models': AIModelsPage,
   'users': UsersPage,
   'audit-logs': AuditLogPage,
+  'settings': SettingsPage,
 }
 
 export default function MainLayout() {
