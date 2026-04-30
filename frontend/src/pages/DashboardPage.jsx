@@ -1,7 +1,166 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getDashboard, getConceptHeat, getSectorFundFlow, getSectorHeat, getTsLimitStats, getTsLimitStep, getTsMoneyflow, getTsRealTimeStats, getDashboardOverview } from '../services/api'
-import { BarChart3, TrendingUp, TrendingDown, Activity, Flame, Crown, AlertTriangle, DollarSign, Users, Zap, ArrowUp, ArrowDown, RefreshCw, Lightbulb, Eye, ChevronLeft, ChevronRight, Maximize, Minimize } from 'lucide-react'
+import { BarChart3, TrendingUp, TrendingDown, Activity, Flame, Crown, AlertTriangle, DollarSign, Users, Zap, ArrowUp, ArrowDown, RefreshCw, Lightbulb, Eye, ChevronLeft, ChevronRight, Maximize, Minimize, Calendar } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+
+// ==================== Modern Calendar Picker for Dashboard ====================
+function DashboardCalendar({ date, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [viewMonth, setViewMonth] = useState(() => {
+    const d = new Date(date)
+    return new Date(d.getFullYear(), d.getMonth(), 1)
+  })
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const today = new Date()
+  const selectedDate = new Date(date)
+  
+  // Generate calendar grid
+  const year = viewMonth.getFullYear()
+  const month = viewMonth.getMonth()
+  const firstDay = new Date(year, month, 1).getDay() // 0=Sunday
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  
+  const weeks = []
+  let currentWeek = Array(7).fill(null)
+  let dayCounter = 1
+  
+  // Fill first week with blanks
+  for (let i = firstDay; i < 7 && dayCounter <= daysInMonth; i++) {
+    currentWeek[i] = dayCounter++
+  }
+  weeks.push(currentWeek)
+  
+  while (dayCounter <= daysInMonth) {
+    currentWeek = Array(7).fill(null)
+    for (let i = 0; i < 7 && dayCounter <= daysInMonth; i++) {
+      currentWeek[i] = dayCounter++
+    }
+    weeks.push(currentWeek)
+  }
+
+  const isWeekend = (day) => {
+    if (!day) return false
+    const d = new Date(year, month, day)
+    return d.getDay() === 0 || d.getDay() === 6
+  }
+
+  const isFuture = (day) => {
+    if (!day) return false
+    const d = new Date(year, month, day)
+    return d > today
+  }
+
+  const isSelected = (day) => {
+    if (!day) return false
+    return year === selectedDate.getFullYear() && month === selectedDate.getMonth() && day === selectedDate.getDate()
+  }
+
+  const isToday = (day) => {
+    if (!day) return false
+    return year === today.getFullYear() && month === today.getMonth() && day === today.getDate()
+  }
+
+  const handleDayClick = (day) => {
+    if (!day || isWeekend(day) || isFuture(day)) return
+    const newDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    onChange(newDate)
+    setOpen(false)
+  }
+
+  const prevMonth = () => setViewMonth(new Date(year, month - 1, 1))
+  const nextMonth = () => setViewMonth(new Date(year, month + 1, 1))
+
+  const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月']
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-[#513CC8] transition text-sm shadow-sm">
+        <Calendar size={14} style={{ color: '#513CC8' }} />
+        <span className="font-medium text-gray-700">{date}</span>
+      </button>
+
+      {open && (
+        <div className="absolute top-full right-0 mt-2 w-[300px] bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
+          {/* Month Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100" style={{ background: 'linear-gradient(135deg, #F0EDFA, #E8E3F8)' }}>
+            <button onClick={prevMonth} className="p-1 rounded-lg hover:bg-white/50 transition text-gray-600">
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-sm font-bold" style={{ color: '#513CC8' }}>{year}年 {monthNames[month]}</span>
+            <button onClick={nextMonth} className="p-1 rounded-lg hover:bg-white/50 transition text-gray-600"
+              disabled={new Date(year, month + 1, 1) > today}>
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          {/* Day Headers */}
+          <div className="grid grid-cols-7 px-3 pt-3 pb-1">
+            {['日', '一', '二', '三', '四', '五', '六'].map((d, i) => (
+              <div key={i} className={`text-center text-[10px] font-medium ${i === 0 || i === 6 ? 'text-gray-300' : 'text-gray-500'}`}>{d}</div>
+            ))}
+          </div>
+
+          {/* Calendar Grid */}
+          <div className="px-3 pb-3">
+            {weeks.map((week, wi) => (
+              <div key={wi} className="grid grid-cols-7 gap-0.5">
+                {week.map((day, di) => (
+                  <button
+                    key={di}
+                    disabled={!day || isWeekend(day) || isFuture(day)}
+                    onClick={() => handleDayClick(day)}
+                    className={`h-8 w-full rounded-lg text-xs font-medium transition flex items-center justify-center
+                      ${!day ? '' : 
+                        isSelected(day) ? 'text-white shadow-md' :
+                        isToday(day) ? 'border-2 text-[#513CC8] font-bold' :
+                        isWeekend(day) || isFuture(day) ? 'text-gray-200 cursor-not-allowed' :
+                        'text-gray-700 hover:bg-[#F0EDFA] hover:text-[#513CC8]'
+                      }`}
+                    style={isSelected(day) ? { background: '#513CC8', borderColor: '#513CC8' } : 
+                           isToday(day) ? { borderColor: '#513CC8' } : {}}>
+                    {day || ''}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Quick select */}
+          <div className="px-3 pb-3 border-t border-gray-100 pt-2 flex items-center gap-1.5">
+            <span className="text-[10px] text-gray-400 mr-1">快捷:</span>
+            {[0, 1, 2, 3, 4].map(offset => {
+              let d = new Date()
+              let count = 0
+              while (count <= offset) {
+                if (d.getDay() !== 0 && d.getDay() !== 6) count++
+                if (count <= offset) d = new Date(d.getTime() - 86400000)
+              }
+              const dateStr = d.toISOString().slice(0, 10)
+              const label = offset === 0 ? '今天' : offset === 1 ? '昨天' : `前${offset}天`
+              return (
+                <button key={offset} onClick={() => { onChange(dateStr); setOpen(false) }}
+                  className={`px-2 py-1 rounded text-[10px] font-medium transition ${
+                    date === dateStr ? 'text-white' : 'text-gray-500 bg-gray-50 hover:bg-[#F0EDFA] hover:text-[#513CC8]'
+                  }`}
+                  style={date === dateStr ? { background: '#513CC8' } : {}}>
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function DashboardPage() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
@@ -40,19 +199,6 @@ export default function DashboardPage() {
   const [conceptHeatTotal, setConceptHeatTotal] = useState(0)
 
   const MONEYFLOW_PAGE_SIZE = 15
-
-  const last7Days = (() => {
-    const dates = []
-    let d = new Date()
-    while (dates.length < 7) {
-      const day = d.getDay()
-      if (day !== 0 && day !== 6) {
-        dates.unshift(d.toISOString().slice(0, 10))
-      }
-      d = new Date(d.getTime() - 86400000)
-    }
-    return dates
-  })()
 
   // Fullscreen toggle
   const toggleFullscreen = useCallback(() => {
@@ -348,17 +494,10 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {last7Days.map(d => (
-            <button key={d} onClick={() => setDate(d)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                date === d ? 'text-white shadow-md' : 'text-gray-500 hover:text-gray-700 bg-white border border-gray-200 hover:border-gray-300'
-              }`}
-              style={date === d ? { background: '#513CC8', boxShadow: '0 2px 8px rgba(81,60,200,0.3)' } : {}}>
-              {d.slice(5)}
-            </button>
-          ))}
+          {/* Modern Calendar Picker */}
+          <DashboardCalendar date={date} onChange={setDate} />
           <button onClick={loadData} disabled={loading}
-            className="p-2 rounded-lg text-gray-400 hover:text-[#513CC8] hover:bg-[#F0EDFA] transition ml-2">
+            className="p-2 rounded-lg text-gray-400 hover:text-[#513CC8] hover:bg-[#F0EDFA] transition ml-1">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
           <button onClick={toggleFullscreen}

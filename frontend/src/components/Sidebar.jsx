@@ -51,7 +51,7 @@ export default function Sidebar() {
         </div>
         {!sidebarCollapsed && (
           <div className="ml-3 overflow-hidden">
-            <h1 className="text-sm font-bold whitespace-nowrap" style={{ color: '#513CC8' }}>QuantMind</h1>
+            <h1 className="text-sm font-bold whitespace-nowrap" style={{ color: '#513CC8' }}>QuantMind <span className="text-[9px] font-normal px-1 py-0.5 rounded" style={{ background: '#F0EDFA', color: '#513CC8' }}>v2.0</span></h1>
             <p className="text-[10px] text-gray-400 whitespace-nowrap">AI量化平台</p>
           </div>
         )}

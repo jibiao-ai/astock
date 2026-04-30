@@ -112,7 +112,7 @@ export default function LoginPage() {
 
         <div className="text-center mt-6 text-xs text-gray-400">
           <p>Powered by Hermes Agent · DeepSeek · Baostock · 东方财富</p>
-          <p className="mt-1">QuantMind v1.0 &copy; 2026</p>
+          <p className="mt-1">QuantMind v2.0 &copy; 2026</p>
         </div>
       </div>
     </div>
