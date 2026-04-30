@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { 
   getTrendChart, getKLineRealtime, getChipDistribution,
   getStockFundFlow, getGubaDiscussion,
@@ -122,60 +122,187 @@ function SummaryCards({ traders }) {
   )
 }
 
-// ==================== Modern Calendar Picker ====================
+// ==================== Modern Calendar Picker (Grid Style with Month Navigation) ====================
 function CalendarPicker({ dates, tradeDate, onChange }) {
   const [open, setOpen] = useState(false)
+  const [viewMonth, setViewMonth] = useState(() => {
+    // Initialize to the month of the selected trade date, or current month
+    if (tradeDate) {
+      const parts = tradeDate.split('-')
+      if (parts.length === 3) return new Date(+parts[0], +parts[1] - 1, 1)
+    }
+    return new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  })
   const ref = useRef(null)
 
-  // Close on click outside
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const selectedLabel = dates.find(d => d.raw_date === tradeDate)?.trade_date || '选择日期'
+  // Update viewMonth when tradeDate changes externally
+  useEffect(() => {
+    if (tradeDate) {
+      const parts = tradeDate.split('-')
+      if (parts.length === 3) setViewMonth(new Date(+parts[0], +parts[1] - 1, 1))
+    }
+  }, [tradeDate])
 
-  // Group dates by month
-  const grouped = {}
-  dates.forEach(d => {
-    const month = d.trade_date?.slice(0, 7) || ''
-    if (!grouped[month]) grouped[month] = []
-    grouped[month].push(d)
-  })
+  const today = new Date()
+  const year = viewMonth.getFullYear()
+  const month = viewMonth.getMonth()
+  const firstDay = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  // Build available dates set for quick lookup
+  const availableDates = new Set(dates.map(d => d.raw_date))
+  const dateCountMap = {}
+  dates.forEach(d => { dateCountMap[d.raw_date] = d.count })
+
+  // Generate calendar grid
+  const weeks = []
+  let currentWeek = Array(7).fill(null)
+  let dayCounter = 1
+  for (let i = firstDay; i < 7 && dayCounter <= daysInMonth; i++) {
+    currentWeek[i] = dayCounter++
+  }
+  weeks.push(currentWeek)
+  while (dayCounter <= daysInMonth) {
+    currentWeek = Array(7).fill(null)
+    for (let i = 0; i < 7 && dayCounter <= daysInMonth; i++) {
+      currentWeek[i] = dayCounter++
+    }
+    weeks.push(currentWeek)
+  }
+
+  const isWeekend = (day) => {
+    if (!day) return false
+    const d = new Date(year, month, day)
+    return d.getDay() === 0 || d.getDay() === 6
+  }
+
+  const isFuture = (day) => {
+    if (!day) return false
+    const d = new Date(year, month, day)
+    return d > today
+  }
+
+  const getDateStr = (day) => {
+    if (!day) return ''
+    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+
+  const isSelected = (day) => {
+    if (!day) return false
+    return getDateStr(day) === tradeDate
+  }
+
+  const isToday = (day) => {
+    if (!day) return false
+    return year === today.getFullYear() && month === today.getMonth() && day === today.getDate()
+  }
+
+  const isAvailable = (day) => {
+    if (!day) return false
+    return availableDates.has(getDateStr(day))
+  }
+
+  const handleDayClick = (day) => {
+    if (!day || isFuture(day)) return
+    const dateStr = getDateStr(day)
+    // Allow clicking on available dates (trading days with data)
+    if (isAvailable(day)) {
+      onChange(dateStr)
+      setOpen(false)
+    }
+  }
+
+  const prevMonth = () => setViewMonth(new Date(year, month - 1, 1))
+  const nextMonth = () => {
+    const next = new Date(year, month + 1, 1)
+    if (next <= today) setViewMonth(next)
+  }
+
+  const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月']
+
+  const selectedLabel = tradeDate || '选择日期'
 
   return (
     <div className="relative" ref={ref}>
       <button onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-[#513CC8] transition text-sm">
+        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-[#513CC8] transition text-sm shadow-sm">
         <Calendar size={14} style={{ color: '#513CC8' }} />
         <span className="font-medium text-gray-700">{selectedLabel}</span>
         <ChevronDown size={14} className={`text-gray-400 transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100" style={{ background: '#F0EDFA' }}>
-            <p className="text-xs font-medium" style={{ color: '#513CC8' }}>选择交易日期</p>
+        <div className="absolute top-full right-0 mt-2 w-[300px] bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
+          {/* Month Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100" style={{ background: 'linear-gradient(135deg, #F0EDFA, #E8E3F8)' }}>
+            <button onClick={prevMonth} className="p-1 rounded-lg hover:bg-white/50 transition text-gray-600">
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-sm font-bold" style={{ color: '#513CC8' }}>{year}年 {monthNames[month]}</span>
+            <button onClick={nextMonth} className="p-1 rounded-lg hover:bg-white/50 transition text-gray-600"
+              disabled={new Date(year, month + 1, 1) > today}>
+              <ChevronRight size={16} />
+            </button>
           </div>
-          <div className="max-h-80 overflow-y-auto p-2">
-            {Object.entries(grouped).map(([month, items]) => (
-              <div key={month} className="mb-2">
-                <p className="text-[10px] text-gray-400 px-2 py-1 font-medium">{month}</p>
-                <div className="grid grid-cols-3 gap-1">
-                  {items.map(d => (
-                    <button key={d.raw_date}
-                      onClick={() => { onChange(d.raw_date); setOpen(false) }}
-                      className={`px-2 py-2 rounded-lg text-xs font-medium transition text-center
-                        ${tradeDate === d.raw_date 
-                          ? 'text-white shadow-md' 
-                          : 'text-gray-600 hover:bg-gray-50 border border-transparent hover:border-gray-200'}`}
-                      style={tradeDate === d.raw_date ? { background: '#513CC8' } : {}}>
-                      <div>{d.trade_date?.slice(5)}</div>
-                      <div className="text-[10px] mt-0.5 opacity-70">{d.count}只</div>
+
+          {/* Day Headers */}
+          <div className="grid grid-cols-7 px-3 pt-3 pb-1">
+            {['日', '一', '二', '三', '四', '五', '六'].map((d, i) => (
+              <div key={i} className={`text-center text-xs font-medium py-1 ${i === 0 || i === 6 ? 'text-gray-300' : 'text-gray-500'}`}>{d}</div>
+            ))}
+          </div>
+
+          {/* Calendar Grid */}
+          <div className="px-3 pb-3">
+            {weeks.map((week, wi) => (
+              <div key={wi} className="grid grid-cols-7">
+                {week.map((day, di) => {
+                  const available = isAvailable(day)
+                  const selected = isSelected(day)
+                  const weekend = isWeekend(day)
+                  const future = isFuture(day)
+                  const todayMark = isToday(day)
+                  const count = day ? dateCountMap[getDateStr(day)] : null
+
+                  return (
+                    <button
+                      key={di}
+                      onClick={() => handleDayClick(day)}
+                      disabled={!day || future || !available}
+                      className={`relative flex flex-col items-center justify-center py-1.5 mx-0.5 my-0.5 rounded-lg text-xs transition
+                        ${!day ? '' : selected
+                          ? 'text-white font-bold shadow-md'
+                          : available
+                            ? 'hover:bg-[#F0EDFA] cursor-pointer font-medium text-gray-700'
+                            : weekend || future
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'text-gray-300 cursor-not-allowed'
+                        }`}
+                      style={selected ? { background: '#513CC8' } : {}}
+                    >
+                      {day && (
+                        <>
+                          <span className={todayMark && !selected ? 'text-[#513CC8] font-bold' : ''}>{day}</span>
+                          {available && !selected && (
+                            <span className="text-[8px] text-[#513CC8] opacity-60">{count}只</span>
+                          )}
+                          {selected && count && (
+                            <span className="text-[8px] text-white/80">{count}只</span>
+                          )}
+                          {todayMark && !selected && (
+                            <div className="absolute bottom-0.5 w-1 h-1 rounded-full" style={{ background: '#513CC8' }} />
+                          )}
+                        </>
+                      )}
                     </button>
-                  ))}
-                </div>
+                  )
+                })}
               </div>
             ))}
           </div>
@@ -211,7 +338,7 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
   const [expandedTrader, setExpandedTrader] = useState(null)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm">
+    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm h-full flex flex-col" style={{ minHeight: 'calc(100vh - 380px)' }}>
       {/* Sort Buttons */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100" style={{ background: '#F9F8FC' }}>
         <h3 className="text-sm font-bold text-gray-700 flex items-center gap-1.5">
@@ -230,7 +357,7 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
       </div>
 
       {/* Trader List */}
-      <div className="max-h-[calc(100vh-420px)] overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         {traders?.map((trader, idx) => (
           <div key={idx} className="border-b border-gray-50 last:border-0">
             <div
@@ -351,7 +478,7 @@ function StockDetailPanel({ code, stockInfo, onClose }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-lg flex flex-col" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-lg flex flex-col h-full" style={{ minHeight: 'calc(100vh - 380px)' }}>
       {/* Stock Header */}
       <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between" style={{ background: '#F9F8FC' }}>
         <div className="flex items-center gap-3">
@@ -615,9 +742,20 @@ export default function HotMoneyBoardPage() {
   // Fetch board data when date or sort changes
   useEffect(() => { fetchBoard() }, [tradeDate, sortBy])
 
+  // Auto-select first trader's first stock when board data changes
+  useEffect(() => {
+    if (boardData?.traders?.length > 0 && !selectedCode) {
+      const firstTrader = boardData.traders[0]
+      if (firstTrader?.stocks?.length > 0) {
+        const firstStock = firstTrader.stocks[0]
+        handleSelectStock(firstStock)
+      }
+    }
+  }, [boardData])
+
   const fetchDates = async () => {
     try {
-      const res = await getHotMoneyDates({ limit: 20 })
+      const res = await getHotMoneyDates({ limit: 60 })
       if (res?.code === 0 && res.data?.dates) {
         setDates(res.data.dates)
         if (res.data.dates.length > 0 && !tradeDate) {
@@ -633,7 +771,16 @@ export default function HotMoneyBoardPage() {
       const params = { sort: sortBy }
       if (tradeDate) params.trade_date = tradeDate
       const res = await getHotMoneyBoard(params)
-      if (res?.code === 0) setBoardData(res.data)
+      if (res?.code === 0) {
+        setBoardData(res.data)
+        // Auto-select first stock of first trader
+        if (res.data?.traders?.length > 0) {
+          const firstTrader = res.data.traders[0]
+          if (firstTrader?.stocks?.length > 0) {
+            handleSelectStock(firstTrader.stocks[0])
+          }
+        }
+      }
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
   }
@@ -669,7 +816,7 @@ export default function HotMoneyBoardPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Modern Calendar Picker */}
+          {/* Modern Calendar Picker - Grid Style */}
           <CalendarPicker dates={dates} tradeDate={tradeDate} onChange={setTradeDate} />
           <button onClick={fetchBoard}
             className="p-2 rounded-lg transition hover:bg-[#F0EDFA]" style={{ color: '#513CC8' }}>
@@ -684,10 +831,10 @@ export default function HotMoneyBoardPage() {
       {/* Summary Cards */}
       <SummaryCards traders={boardData?.traders} />
 
-      {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4" style={{ minHeight: 'calc(100vh - 380px)' }}>
-        {/* Trader List - takes full width when no stock selected, or left side when selected */}
-        <div className={selectedCode ? 'lg:col-span-5' : 'lg:col-span-12'}>
+      {/* Main Content - ALWAYS 50/50 split layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" style={{ minHeight: 'calc(100vh - 380px)' }}>
+        {/* Left: Trader List - always 50% */}
+        <div className="h-full">
           {loading && !boardData ? (
             <div className="flex items-center justify-center h-40 bg-white rounded-xl border border-gray-100">
               <Loader2 size={24} className="animate-spin" style={{ color: '#513CC8' }} />
@@ -704,12 +851,20 @@ export default function HotMoneyBoardPage() {
           )}
         </div>
 
-        {/* Stock Detail Panel - only shows when a stock is selected */}
-        {selectedCode && (
-          <div className="lg:col-span-7">
+        {/* Right: Stock Detail Panel - always 50%, always visible */}
+        <div className="h-full">
+          {selectedCode ? (
             <StockDetailPanel code={selectedCode} stockInfo={selectedStock} onClose={handleCloseDetail} />
-          </div>
-        )}
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-100 h-full flex items-center justify-center shadow-sm">
+              <div className="text-center text-gray-400">
+                <Activity size={32} className="mx-auto mb-2 opacity-40" />
+                <p className="text-sm">点击左侧游资展开后选择个股</p>
+                <p className="text-xs mt-1">查看分时走势、K线、筹码、主力资金等</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Stats footer */}
