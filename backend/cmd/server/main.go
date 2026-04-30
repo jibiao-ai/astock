@@ -100,6 +100,9 @@ func main() {
 		auth.GET("/market/ts-moneyflow", h.GetTsMoneyflow)            // 资金流向
 		auth.GET("/market/ts-realtime-stats", h.GetTsRealTimeStats)   // Tushare实时统计
 
+		// 看板大屏 - 大盘速览+涨跌分布+情绪温度
+		auth.GET("/market/dashboard-overview", h.GetDashboardOverview) // 大盘速览(指数/涨跌分布/情绪)
+
 		// 股市播报 & 财务播报
 		auth.GET("/market/broadcast", h.GetBroadcastMarket)           // 股市播报(ST/港通/盘前/公司)
 		auth.GET("/market/broadcast-finance", h.GetBroadcastFinance)  // 财务播报(利润/资产/现金流/预告/快报/审计/主营/指标)
