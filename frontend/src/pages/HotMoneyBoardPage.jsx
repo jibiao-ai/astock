@@ -444,39 +444,77 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100" style={{ background: '#F9F8FC' }}>
-          <span className="text-xs text-gray-400">
-            共 {traders?.length || 0} 位游资
+        <div className="flex items-center justify-center px-4 py-2.5 border-t border-gray-100 gap-3" style={{ background: '#F9F8FC' }}>
+          <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">
+            共{traders?.length || 0}位游资
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage <= 1}
+              className={`px-1.5 py-1 rounded text-xs transition ${currentPage <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100 hover:text-[#513CC8]'}`}
+              title="首页"
+            >
+              {'<<'}
+            </button>
             <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage <= 1}
-              className={`p-1 rounded transition ${currentPage <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100 hover:text-[#513CC8]'}`}
+              className={`px-1.5 py-1 rounded text-xs transition ${currentPage <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100 hover:text-[#513CC8]'}`}
+              title="上一页"
             >
-              <ChevronLeft size={16} />
+              {'<'}
             </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-              <button key={page} onClick={() => setCurrentPage(page)}
-                className={`w-6 h-6 rounded text-xs font-medium transition ${
-                  page === currentPage 
-                    ? 'text-white shadow-sm' 
-                    : 'text-gray-500 hover:bg-gray-100'}`}
-                style={page === currentPage ? { background: '#513CC8' } : {}}
-              >
-                {page}
-              </button>
-            ))}
+            {(() => {
+              // Show max 10 page buttons at a time
+              const maxVisible = 10
+              let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2))
+              let endPage = startPage + maxVisible - 1
+              if (endPage > totalPages) {
+                endPage = totalPages
+                startPage = Math.max(1, endPage - maxVisible + 1)
+              }
+              const pages = []
+              if (startPage > 1) {
+                pages.push(<span key="start-ellipsis" className="px-1 text-xs text-gray-400">...</span>)
+              }
+              for (let p = startPage; p <= endPage; p++) {
+                pages.push(
+                  <button key={p} onClick={() => setCurrentPage(p)}
+                    className={`w-6 h-6 rounded text-xs font-medium transition ${
+                      p === currentPage 
+                        ? 'text-white shadow-sm' 
+                        : 'text-gray-500 hover:bg-gray-100'}`}
+                    style={p === currentPage ? { background: '#513CC8' } : {}}
+                  >
+                    {p}
+                  </button>
+                )
+              }
+              if (endPage < totalPages) {
+                pages.push(<span key="end-ellipsis" className="px-1 text-xs text-gray-400">...</span>)
+              }
+              return pages
+            })()}
             <button
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
               disabled={currentPage >= totalPages}
-              className={`p-1 rounded transition ${currentPage >= totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100 hover:text-[#513CC8]'}`}
+              className={`px-1.5 py-1 rounded text-xs transition ${currentPage >= totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100 hover:text-[#513CC8]'}`}
+              title="下一页"
             >
-              <ChevronRight size={16} />
+              {'>'}
+            </button>
+            <button
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage >= totalPages}
+              className={`px-1.5 py-1 rounded text-xs transition ${currentPage >= totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100 hover:text-[#513CC8]'}`}
+              title="末页"
+            >
+              {'>>'}
             </button>
           </div>
-          <span className="text-xs text-gray-400">
-            {currentPage}/{totalPages} 页
+          <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">
+            {currentPage}/{totalPages}页
           </span>
         </div>
       )}
