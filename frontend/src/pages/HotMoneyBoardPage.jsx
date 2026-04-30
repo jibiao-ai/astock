@@ -185,6 +185,27 @@ function CalendarPicker({ dates, tradeDate, onChange }) {
   )
 }
 
+// ==================== Buy/Sell Ratio Bar ====================
+function BuySellRatioBar({ buy, sell }) {
+  const total = (buy || 0) + (sell || 0)
+  if (total === 0) return null
+  const buyPct = ((buy || 0) / total) * 100
+  const sellPct = ((sell || 0) / total) * 100
+
+  return (
+    <div className="flex items-center gap-1.5 w-full">
+      <span className="text-[10px] font-bold text-red-500 w-12 text-right">{formatAmt(buy)}</span>
+      <div className="flex-1 h-2.5 rounded-full overflow-hidden flex bg-gray-100">
+        <div className="h-full rounded-l-full transition-all duration-500" 
+          style={{ width: `${buyPct}%`, background: 'linear-gradient(90deg, #EF4444, #F87171)' }} />
+        <div className="h-full rounded-r-full transition-all duration-500" 
+          style={{ width: `${sellPct}%`, background: 'linear-gradient(90deg, #4ADE80, #22C55E)' }} />
+      </div>
+      <span className="text-[10px] font-bold text-green-500 w-12 text-left">{formatAmt(sell)}</span>
+    </div>
+  )
+}
+
 // ==================== Trader List Panel ====================
 function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortChange }) {
   const [expandedTrader, setExpandedTrader] = useState(null)
@@ -213,22 +234,29 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
         {traders?.map((trader, idx) => (
           <div key={idx} className="border-b border-gray-50 last:border-0">
             <div
-              className="flex items-center justify-between px-4 py-2.5 hover:bg-[#F9F8FC] cursor-pointer transition"
+              className="px-4 py-2.5 hover:bg-[#F9F8FC] cursor-pointer transition"
               onClick={() => setExpandedTrader(expandedTrader === idx ? null : idx)}
             >
-              <div className="flex items-center gap-2">
-                <span className={`text-xs w-5 text-center font-bold ${idx < 3 ? 'text-[#513CC8]' : 'text-gray-400'}`}>{idx + 1}</span>
-                <span className={`text-sm font-semibold truncate max-w-[140px] ${trader.is_known ? 'text-[#513CC8]' : 'text-gray-700'}`}>
-                  {trader.is_known && <Crown size={11} className="inline mr-0.5" style={{ color: '#513CC8' }} />}
-                  {trader.trader_name}
-                </span>
-                <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{trader.trade_count}笔</span>
+              {/* Top row: rank, name, net amount */}
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs w-5 text-center font-bold ${idx < 3 ? 'text-[#513CC8]' : 'text-gray-400'}`}>{idx + 1}</span>
+                  <span className={`text-sm font-semibold truncate max-w-[140px] ${trader.is_known ? 'text-[#513CC8]' : 'text-gray-700'}`}>
+                    {trader.is_known && <Crown size={11} className="inline mr-0.5" style={{ color: '#513CC8' }} />}
+                    {trader.trader_name}
+                  </span>
+                  <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{trader.trade_count}笔</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-bold font-mono ${(trader.total_net || 0) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    净{formatAmt(trader.total_net)}
+                  </span>
+                  {expandedTrader === idx ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-bold font-mono ${(trader.total_net || 0) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  净{formatAmt(trader.total_net)}
-                </span>
-                {expandedTrader === idx ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+              {/* Buy/Sell ratio bar */}
+              <div className="pl-7">
+                <BuySellRatioBar buy={trader.total_buy} sell={trader.total_sell} />
               </div>
             </div>
 
@@ -236,8 +264,9 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
             {expandedTrader === idx && (
               <div className="px-3 pb-3" style={{ background: '#FAFAFF' }}>
                 <div className="flex items-center gap-3 text-[10px] text-gray-500 mb-1.5 px-2 py-1">
-                  <span>买 <span className="text-red-500 font-bold">{formatAmt(trader.total_buy)}</span></span>
-                  <span>卖 <span className="text-green-500 font-bold">{formatAmt(trader.total_sell)}</span></span>
+                  <span>买入 <span className="text-red-500 font-bold">{formatAmt(trader.total_buy)}</span></span>
+                  <span>卖出 <span className="text-green-500 font-bold">{formatAmt(trader.total_sell)}</span></span>
+                  <span>净额 <span className={`font-bold ${(trader.total_net || 0) >= 0 ? 'text-red-500' : 'text-green-500'}`}>{formatAmt(trader.total_net)}</span></span>
                 </div>
                 <div className="space-y-1">
                   {trader.stocks?.map((stock, sIdx) => (
