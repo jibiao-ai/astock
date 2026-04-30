@@ -136,7 +136,7 @@ export default function DashboardPage() {
     try {
       switch (section) {
         case 'overview': {
-          const r = await retryFetch(() => getDashboardOverview({ trade_date: tsDate }))
+          const r = await retryFetch(() => getDashboardOverview({ trade_date: tsDate, refresh: 'true' }))
           if (r?.code === 0) setOverview(r.data)
           break
         }
@@ -177,7 +177,15 @@ export default function DashboardPage() {
   const sentimentHistory = overview?.sentiment_history || []
   const overviewUpCount = overview?.up_count || 0
   const overviewDownCount = overview?.down_count || 0
+  // total_amount is now in 万亿 from backend
   const overviewTotalAmount = overview?.total_amount || 0
+
+  // Board ladder from overview API (new) or tsLimitStep (fallback)
+  const overviewBoardLadder = overview?.board_ladder || []
+  // Limit stocks from overview API
+  const overviewLimitStocks = overview?.limit_stocks || {}
+  // Concept heat from overview API (Tushare ths_daily)
+  const overviewConceptHeat = overview?.concept_heat || []
 
   // Fallback to tsStats if overview not available
   const tsSentiment = tsStats?.market_sentiment || {}
@@ -185,12 +193,16 @@ export default function DashboardPage() {
   const brokens = tsStats?.brokens || []
   const boardLadder = tsStats?.board_ladder || (tsLimitStep ? { ladder: tsLimitStep.ladder_map, max_board: tsLimitStep.highest_board } : {})
 
-  // Limit-up/down stocks from Tushare
-  const limitUpStocks = tsLimitData?.up_stocks || []
-  const limitDownStocks = tsLimitData?.down_stocks || []
+  // Limit-up/down stocks: prefer overview API data, then tsLimitData
+  const limitUpStocks = overviewLimitStocks.up_stocks?.length > 0 ? overviewLimitStocks.up_stocks : (tsLimitData?.up_stocks || [])
+  const limitDownStocks = overviewLimitStocks.down_stocks?.length > 0 ? overviewLimitStocks.down_stocks : (tsLimitData?.down_stocks || [])
+  const brokenStocks = overviewLimitStocks.broken_stocks || []
 
-  // Ladder data from tsLimitStep
-  const ladderList = tsLimitStep?.ladder || []
+  // Ladder data: prefer overview board_ladder, then tsLimitStep
+  const ladderList = overviewBoardLadder.length > 0 ? overviewBoardLadder : (tsLimitStep?.ladder || [])
+
+  // Concept heat: prefer overview, then existing conceptData
+  const finalConceptData = overviewConceptHeat.length > 0 ? overviewConceptHeat : conceptData
 
   const sectors = sectorHeatData.length > 0 ? sectorHeatData : (data?.sectors || [])
   const stats = data?.stats || {}
@@ -225,8 +237,14 @@ export default function DashboardPage() {
     return v.toFixed(0) + '万'
   }
 
+  // Format 万亿 display
+  const formatWanYi = (v) => {
+    if (!v || v === 0) return '---'
+    return v.toFixed(2) + '万亿'
+  }
+
   const currentFlows = flowTab === 'sector' ? sectorFlows : conceptFlows
-  const currentLimitStocks = limitTab === 'up' ? limitUpStocks : limitDownStocks
+  const currentLimitStocks = limitTab === 'up' ? limitUpStocks : (limitTab === 'down' ? limitDownStocks : brokenStocks)
 
   const PAGE_SIZE = 12
   const limitTotalPages = Math.max(1, Math.ceil(currentLimitStocks.length / PAGE_SIZE))
@@ -280,7 +298,6 @@ export default function DashboardPage() {
   // Sentiment gauge SVG
   const SentimentGauge = ({ score, label }) => {
     const clampedScore = Math.min(100, Math.max(0, score || 0))
-    const angle = (clampedScore / 100) * 240 - 120 // -120 to 120 degrees
     const radius = 60
     const circumference = 2 * Math.PI * radius * (240 / 360)
     const filled = (clampedScore / 100) * circumference
@@ -405,9 +422,9 @@ export default function DashboardPage() {
               </div>
               <span className="text-xs font-bold text-green-500">跌 {overviewDownCount || tsSentiment.down_count || 0}</span>
             </div>
-            {/* Total Amount */}
+            {/* Total Amount - 万亿元 */}
             <div className="mt-2 px-1 flex items-center gap-3">
-              <span className="text-xs text-gray-500">成交 <span className="font-bold text-gray-800">{(overviewTotalAmount || tsSentiment.total_amount || 0).toFixed(2)}万亿</span></span>
+              <span className="text-xs text-gray-500">成交 <span className="font-bold text-gray-800">{formatWanYi(overviewTotalAmount || tsSentiment.total_amount || 0)}</span></span>
               {sentimentHistory.length > 1 && (() => {
                 const prev = sentimentHistory[sentimentHistory.length - 2]?.total_amount || 0
                 const curr = overviewTotalAmount || tsSentiment.total_amount || 0
@@ -542,7 +559,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-gray-800">
               <Crown size={16} className="text-red-500" /> 连板天梯
-              {tsLimitStep?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({tsLimitStep.trade_date})</span>}
+              {(overview?.trade_date || tsLimitStep?.trade_date) && <span className="text-[10px] text-gray-400 font-normal ml-1">({overview?.trade_date || tsLimitStep?.trade_date})</span>}
             </h3>
             <RefreshBtn onClick={() => refreshSection('step')} />
           </div>
@@ -604,22 +621,26 @@ export default function DashboardPage() {
 
       {/* ==================== Row 3: 涨跌停个股 + 资金流向 ==================== */}
       <div className="grid grid-cols-12 gap-3">
-        {/* Daily Limit-up / Limit-down stocks from Tushare */}
+        {/* Daily Limit-up / Limit-down / Broken stocks from Tushare */}
         <div className="col-span-6 glass-card p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-gray-800">
               <Eye size={16} style={{ color: '#EF4444' }} /> 当日涨跌停个股
-              {tsLimitData?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({tsLimitData.trade_date})</span>}
+              {(overviewLimitStocks.trade_date || tsLimitData?.trade_date) && <span className="text-[10px] text-gray-400 font-normal ml-1">({overviewLimitStocks.trade_date || tsLimitData?.trade_date})</span>}
             </h3>
             <div className="flex gap-1 items-center">
               <RefreshBtn onClick={() => refreshSection('limit')} />
               <button onClick={() => { setLimitTab('up'); setLimitPage(1) }}
                 className={`px-3 py-1 rounded-lg text-xs font-medium transition ${limitTab === 'up' ? 'text-white bg-red-500' : 'text-gray-500 bg-gray-50 border border-gray-200'}`}>
-                涨停 {tsLimitData?.limit_up || limitUpStocks.length}
+                涨停 {overviewLimitStocks.limit_up || tsLimitData?.limit_up || limitUpStocks.length}
               </button>
               <button onClick={() => { setLimitTab('down'); setLimitPage(1) }}
                 className={`px-3 py-1 rounded-lg text-xs font-medium transition ${limitTab === 'down' ? 'text-white bg-green-500' : 'text-gray-500 bg-gray-50 border border-gray-200'}`}>
-                跌停 {tsLimitData?.limit_down || limitDownStocks.length}
+                跌停 {overviewLimitStocks.limit_down || tsLimitData?.limit_down || limitDownStocks.length}
+              </button>
+              <button onClick={() => { setLimitTab('broken'); setLimitPage(1) }}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition ${limitTab === 'broken' ? 'text-white bg-yellow-500' : 'text-gray-500 bg-gray-50 border border-gray-200'}`}>
+                炸板 {overviewLimitStocks.broken || brokenStocks.length}
               </button>
             </div>
           </div>
@@ -643,16 +664,16 @@ export default function DashboardPage() {
                       <span className="text-gray-800 font-medium">{s.name}</span>
                       <span className="text-gray-400 ml-1 text-[10px]">{s.code}</span>
                     </td>
-                    <td className={`p-2 text-right font-medium ${limitTab === 'up' ? 'stock-up' : 'stock-down'}`}>
+                    <td className={`p-2 text-right font-medium ${limitTab === 'down' ? 'stock-down' : 'stock-up'}`}>
                       {s.close?.toFixed(2) || '---'}
                     </td>
                     <td className={`p-2 text-right font-medium ${(s.pct_chg || 0) >= 0 ? 'stock-up' : 'stock-down'}`}>
                       {(s.pct_chg || 0) >= 0 ? '+' : ''}{s.pct_chg?.toFixed(2)}%
                     </td>
                     <td className="p-2 text-left max-w-[80px]">
-                      {s.tag ? (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-orange-50 text-orange-600 border border-orange-100 truncate inline-block max-w-full" title={s.tag}>
-                          {s.tag}
+                      {(s.tag || s.industry) ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-orange-50 text-orange-600 border border-orange-100 truncate inline-block max-w-full" title={s.tag || s.industry}>
+                          {s.tag || s.industry}
                         </span>
                       ) : '---'}
                     </td>
@@ -668,7 +689,7 @@ export default function DashboardPage() {
                       ) : '---'}
                     </td>
                     <td className="p-2 text-right text-gray-600">{s.turnover_ratio?.toFixed(2) || '---'}</td>
-                    <td className="p-2 text-right text-gray-600">{s.turnover ? formatAmount(s.turnover) : '---'}</td>
+                    <td className="p-2 text-right text-gray-600">{s.amount ? formatAmount(s.amount) : '---'}</td>
                   </tr>
                 ))}
                 {currentLimitStocks.length === 0 && (
@@ -791,29 +812,30 @@ export default function DashboardPage() {
         </div>
 
         <div className="col-span-6 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Lightbulb size={16} style={{ color: '#F59E0B' }} /> 热力概念 <span className="text-[10px] text-gray-400 font-normal">({conceptHeatTotal || conceptData.length}个)</span></h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Lightbulb size={16} style={{ color: '#F59E0B' }} /> 热力概念 <span className="text-[10px] text-gray-400 font-normal">({finalConceptData.length}个)</span></h3>
           <div className="grid grid-cols-4 gap-1.5">
-            {conceptData.slice((conceptHeatPage - 1) * 16, conceptHeatPage * 16).map((c, i) => {
-              const intensity = Math.min(Math.abs(c.change_pct) / 4, 1)
-              const bg = c.change_pct >= 0
+            {finalConceptData.slice((conceptHeatPage - 1) * 16, conceptHeatPage * 16).map((c, i) => {
+              const changePct = c.change_pct || c.pct_change || 0
+              const intensity = Math.min(Math.abs(changePct) / 4, 1)
+              const bg = changePct >= 0
                 ? `rgba(239,68,68,${0.08 + intensity * 0.25})`
                 : `rgba(34,197,94,${0.08 + intensity * 0.25})`
               return (
                 <div key={i} className="rounded-lg p-2 text-center border border-transparent hover:border-gray-200 transition" style={{ background: bg }}>
                   <p className="text-xs font-medium truncate text-gray-700">{c.name}</p>
-                  <p className={`text-sm font-bold ${c.change_pct >= 0 ? 'stock-up' : 'stock-down'}`}>
-                    {c.change_pct > 0 ? '+' : ''}{c.change_pct?.toFixed(2)}%
+                  <p className={`text-sm font-bold ${changePct >= 0 ? 'stock-up' : 'stock-down'}`}>
+                    {changePct > 0 ? '+' : ''}{changePct?.toFixed(2)}%
                   </p>
-                  <p className="text-[10px] text-gray-400 truncate">{formatFlow(c.net_flow * 10000)}</p>
+                  <p className="text-[10px] text-gray-400 truncate">{c.net_flow ? formatFlow(c.net_flow * 10000) : (c.volume ? `${(c.volume / 10000).toFixed(0)}万` : '')}</p>
                 </div>
               )
             })}
-            {conceptData.length === 0 && (
+            {finalConceptData.length === 0 && (
               <div className="col-span-4 text-center py-4 text-gray-400 text-xs">暂无概念数据</div>
             )}
           </div>
-          {conceptData.length > 16 && (
-            <PaginationBar page={conceptHeatPage} totalPages={Math.ceil(conceptData.length / 16)} total={conceptData.length} label="个概念" onPageChange={setConceptHeatPage} />
+          {finalConceptData.length > 16 && (
+            <PaginationBar page={conceptHeatPage} totalPages={Math.ceil(finalConceptData.length / 16)} total={finalConceptData.length} label="个概念" onPageChange={setConceptHeatPage} />
           )}
         </div>
       </div>
