@@ -755,7 +755,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold flex items-center gap-2 text-gray-800">
               <Users size={16} className="text-orange-500" /> 龙虎榜游资数据
-              <span className="text-[10px] text-gray-400 font-normal ml-1">(Tushare·按营业部分组)</span>
+              <span className="text-[10px] text-gray-400 font-normal ml-1">(Tushare·按游资名称分类)</span>
             </h3>
             <div className="flex items-center gap-2">
               {hotMoneyDate && (
@@ -795,6 +795,7 @@ export default function DashboardPage() {
                           <thead>
                             <tr className="text-gray-400">
                               <th className="text-left p-1.5 pl-3">股票</th>
+                              <th className="text-left p-1.5">营业部</th>
                               <th className="text-left p-1.5">方向</th>
                               <th className="text-right p-1.5">买入</th>
                               <th className="text-right p-1.5">卖出</th>
@@ -807,6 +808,9 @@ export default function DashboardPage() {
                                 <td className="p-1.5 pl-3">
                                   <span className="text-gray-800 font-medium">{t.name}</span>
                                   <span className="text-gray-400 ml-1">{t.code}</span>
+                                </td>
+                                <td className="p-1.5 max-w-[180px]">
+                                  <span className="text-gray-500 text-[10px] truncate block" title={t.seat}>{t.seat}</span>
                                 </td>
                                 <td className="p-1.5">
                                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${t.side === '0' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}`}>

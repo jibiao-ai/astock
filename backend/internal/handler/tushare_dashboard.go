@@ -142,6 +142,24 @@ type TsMoneyflowInd struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
+// TsHotMoneyList stores 游资名录 (hm_list) - maps trader names to associated seats
+type TsHotMoneyList struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:100;index:idx_ts_hm_name" json:"name"`
+	Desc      string    `gorm:"size:2000" json:"desc"`
+	Orgs      string    `gorm:"size:5000" json:"orgs"` // comma-separated org/seat names
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// In-memory cache for hot money seat -> trader name mapping
+var (
+	hotMoneyMu       sync.RWMutex
+	hotMoneySeatMap  map[string]string // seat keyword -> trader name
+	hotMoneyLoaded   bool
+	hotMoneyLoadTime time.Time
+)
+
 // AutoMigrateDashboardModels migrates all dashboard-related Tushare models
 func AutoMigrateDashboardModels(db *gorm.DB) {
 	db.AutoMigrate(
@@ -152,8 +170,247 @@ func AutoMigrateDashboardModels(db *gorm.DB) {
 		&TsStkAuction{},
 		&TsMoneyflow{},
 		&TsMoneyflowInd{},
+		&TsHotMoneyList{},
 	)
 	log.Println("[Dashboard] Tushare dashboard models migrated")
+
+	// Pre-load hot money list in background
+	go ensureHotMoneyList()
+}
+
+// ensureHotMoneyList loads the hot money list from DB or fetches from Tushare API
+func ensureHotMoneyList() {
+	hotMoneyMu.RLock()
+	// Refresh every 24 hours
+	if hotMoneyLoaded && time.Since(hotMoneyLoadTime) < 24*time.Hour {
+		hotMoneyMu.RUnlock()
+		return
+	}
+	hotMoneyMu.RUnlock()
+
+	// Check DB first
+	var dbItems []TsHotMoneyList
+	repository.DB.Find(&dbItems)
+
+	if len(dbItems) == 0 {
+		// Fetch from Tushare hm_list API
+		log.Println("[HotMoneyList] No cached data, fetching from Tushare hm_list API...")
+		fetchAndSaveHotMoneyList()
+		repository.DB.Find(&dbItems)
+	}
+
+	if len(dbItems) == 0 {
+		log.Println("[HotMoneyList] No hot money list data available, using hardcoded fallback")
+		buildHotMoneySeatMapFromFallback()
+		return
+	}
+
+	// Build seat->name mapping
+	seatMap := make(map[string]string)
+	for _, item := range dbItems {
+		if item.Orgs == "" || item.Orgs == "[]" {
+			continue
+		}
+		// Orgs can be in JSON array format ["org1", "org2"] or comma/、separated
+		orgs := parseOrgsField(item.Orgs)
+		for _, org := range orgs {
+			org = strings.TrimSpace(org)
+			if org == "" {
+				continue
+			}
+			// Store full org name as key
+			seatMap[org] = item.Name
+			// Also extract short key (remove common suffixes for fuzzy matching)
+			shortKey := extractSeatShortKey(org)
+			if shortKey != "" && shortKey != org {
+				seatMap[shortKey] = item.Name
+			}
+		}
+	}
+
+	hotMoneyMu.Lock()
+	hotMoneySeatMap = seatMap
+	hotMoneyLoaded = true
+	hotMoneyLoadTime = time.Now()
+	hotMoneyMu.Unlock()
+
+	// Also merge hardcoded fallback seats (lower priority, won't overwrite API data)
+	fallback := getHotMoneySeatsMap()
+	hotMoneyMu.Lock()
+	for seat, name := range fallback {
+		if _, exists := hotMoneySeatMap[seat]; !exists {
+			hotMoneySeatMap[seat] = name
+		}
+	}
+	finalCount := len(hotMoneySeatMap)
+	hotMoneyMu.Unlock()
+	log.Printf("[HotMoneyList] Loaded %d seat mappings from %d API traders + hardcoded fallback (total: %d)", len(seatMap), len(dbItems), finalCount)
+}
+
+// extractSeatShortKey extracts a shorter matchable key from a full seat name
+// e.g. "华泰证券股份有限公司上海武定路证券营业部" -> "华泰证券上海武定路"
+func extractSeatShortKey(org string) string {
+	// Remove common suffixes
+	suffixes := []string{"证券营业部", "营业部", "证券有限责任公司", "股份有限公司", "有限责任公司", "有限公司"}
+	result := org
+	for _, suffix := range suffixes {
+		result = strings.ReplaceAll(result, suffix, "")
+	}
+	result = strings.TrimSpace(result)
+	if result == "" || result == org {
+		return ""
+	}
+	return result
+}
+
+// parseOrgsField parses the orgs field which can be in JSON array format or comma/、separated
+func parseOrgsField(orgsStr string) []string {
+	orgsStr = strings.TrimSpace(orgsStr)
+	if orgsStr == "" || orgsStr == "[]" {
+		return nil
+	}
+
+	// Try JSON array format: ["org1", "org2"]
+	if strings.HasPrefix(orgsStr, "[") && strings.HasSuffix(orgsStr, "]") {
+		// Remove brackets
+		inner := orgsStr[1 : len(orgsStr)-1]
+		if inner == "" {
+			return nil
+		}
+		// Split by ", " pattern (JSON array elements)
+		parts := strings.Split(inner, "\", \"")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.Trim(p, "\" ")
+			p = strings.TrimSpace(p)
+			if p != "" {
+				result = append(result, p)
+			}
+		}
+		if len(result) > 0 {
+			return result
+		}
+	}
+
+	// Try 、separated (Chinese enumeration comma)
+	if strings.Contains(orgsStr, "、") {
+		return strings.Split(orgsStr, "、")
+	}
+
+	// Try comma separated
+	if strings.Contains(orgsStr, ",") {
+		return strings.Split(orgsStr, ",")
+	}
+
+	// Single org
+	return []string{orgsStr}
+}
+
+// matchHotMoneyTraderName finds the trader name for a given seat/exalter name
+func matchHotMoneyTraderName(exalter string) string {
+	hotMoneyMu.RLock()
+	seatMap := hotMoneySeatMap
+	hotMoneyMu.RUnlock()
+
+	if seatMap == nil || exalter == "" {
+		return ""
+	}
+
+	// 1. Exact match first (highest priority)
+	if name, ok := seatMap[exalter]; ok {
+		return name
+	}
+
+	// 2. Try normalized short key match (strip common suffixes)
+	shortKey := extractSeatShortKey(exalter)
+	if shortKey != "" {
+		if name, ok := seatMap[shortKey]; ok {
+			return name
+		}
+	}
+
+	// 3. Try matching: if the exalter's short key contains a known seat key
+	// Only for keys that are specific enough (>= 10 chars to avoid false positives)
+	if shortKey != "" {
+		for key, name := range seatMap {
+			keyLen := len([]rune(key))
+			if keyLen >= 5 && keyLen <= 20 {
+				// Check if the short key matches a known abbreviated key
+				if strings.Contains(shortKey, key) || strings.Contains(key, shortKey) {
+					return name
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// fetchAndSaveHotMoneyList fetches hm_list from Tushare and saves to DB
+func fetchAndSaveHotMoneyList() {
+	resp, err := callTushareAPI("hm_list", map[string]string{}, "name,desc,orgs")
+	if err != nil {
+		log.Printf("[HotMoneyList] hm_list API error: %v", err)
+		return
+	}
+
+	rows := tushareDataToMap(resp)
+	if len(rows) == 0 {
+		log.Println("[HotMoneyList] hm_list returned no data")
+		return
+	}
+
+	items := make([]TsHotMoneyList, 0, len(rows))
+	for _, row := range rows {
+		name := tsString(row, "name")
+		if name == "" {
+			continue
+		}
+		items = append(items, TsHotMoneyList{
+			Name: name,
+			Desc: tsString(row, "desc"),
+			Orgs: tsString(row, "orgs"),
+		})
+	}
+
+	if len(items) == 0 {
+		return
+	}
+
+	// Replace all existing data
+	tx := repository.DB.Begin()
+	if tx.Error != nil {
+		log.Printf("[HotMoneyList] begin tx error: %v", tx.Error)
+		return
+	}
+	tx.Where("1 = 1").Delete(&TsHotMoneyList{})
+	if err := tx.CreateInBatches(&items, 100).Error; err != nil {
+		tx.Rollback()
+		log.Printf("[HotMoneyList] batch insert error: %v", err)
+		return
+	}
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("[HotMoneyList] commit error: %v", err)
+		return
+	}
+	log.Printf("[HotMoneyList] Saved %d hot money traders from Tushare hm_list", len(items))
+}
+
+// buildHotMoneySeatMapFromFallback builds seat map from the hardcoded eastmoney fallback
+func buildHotMoneySeatMapFromFallback() {
+	// Use the existing hardcoded map as fallback
+	fallback := getHotMoneySeatsMap()
+	seatMap := make(map[string]string)
+	for seat, name := range fallback {
+		seatMap[seat] = name
+	}
+
+	hotMoneyMu.Lock()
+	hotMoneySeatMap = seatMap
+	hotMoneyLoaded = true
+	hotMoneyLoadTime = time.Now()
+	hotMoneyMu.Unlock()
+	log.Printf("[HotMoneyList] Loaded %d seat mappings from hardcoded fallback", len(seatMap))
 }
 
 // ==================== Helper: trade date utilities ====================
@@ -426,8 +683,11 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 		}
 	}
 
+	// Ensure hot money list is loaded for trader name matching
+	ensureHotMoneyList()
+
 	// Build response with trader-grouped format for frontend compatibility
-	// Group by exalter (trader seat name) for hot-money style display
+	// Group by hot money trader name (游资名称) using hm_list data
 	traderMap := map[string]*gin.H{}
 	traderOrder := []string{}
 
@@ -436,9 +696,16 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 		insts := instMap[item.TsCode]
 
 		for _, inst := range insts {
-			traderName := inst.Exalter
+			seatName := inst.Exalter
+			if seatName == "" {
+				seatName = "其他"
+			}
+
+			// Match seat name to known hot money trader name
+			traderName := matchHotMoneyTraderName(seatName)
 			if traderName == "" {
-				traderName = "其他"
+				// If not matched to a known trader, use the seat name directly
+				traderName = seatName
 			}
 
 			if _, ok := traderMap[traderName]; !ok {
@@ -459,7 +726,7 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 			trades = append(trades, gin.H{
 				"code":     code,
 				"name":     item.Name,
-				"seat":     traderName,
+				"seat":     seatName,
 				"buy_amt":  inst.Buy,
 				"sell_amt": inst.Sell,
 				"net_amt":  inst.NetBuy,
