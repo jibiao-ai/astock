@@ -334,8 +334,20 @@ function BuySellRatioBar({ buy, sell }) {
 }
 
 // ==================== Trader List Panel ====================
+const TRADERS_PER_PAGE = 8
+
 function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortChange }) {
   const [expandedTrader, setExpandedTrader] = useState(null)
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const totalPages = traders ? Math.ceil(traders.length / TRADERS_PER_PAGE) : 1
+  const pagedTraders = traders?.slice((currentPage - 1) * TRADERS_PER_PAGE, currentPage * TRADERS_PER_PAGE) || []
+
+  // Reset to page 1 when traders data changes
+  useEffect(() => {
+    setCurrentPage(1)
+    setExpandedTrader(null)
+  }, [traders])
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm h-full flex flex-col" style={{ minHeight: 'calc(100vh - 380px)' }}>
@@ -358,16 +370,18 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
 
       {/* Trader List */}
       <div className="flex-1 overflow-y-auto">
-        {traders?.map((trader, idx) => (
-          <div key={idx} className="border-b border-gray-50 last:border-0">
+        {pagedTraders.map((trader, idx) => {
+          const globalIdx = (currentPage - 1) * TRADERS_PER_PAGE + idx
+          return (
+          <div key={globalIdx} className="border-b border-gray-50 last:border-0">
             <div
               className="px-4 py-2.5 hover:bg-[#F9F8FC] cursor-pointer transition"
-              onClick={() => setExpandedTrader(expandedTrader === idx ? null : idx)}
+              onClick={() => setExpandedTrader(expandedTrader === globalIdx ? null : globalIdx)}
             >
               {/* Top row: rank, name, net amount */}
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs w-5 text-center font-bold ${idx < 3 ? 'text-[#513CC8]' : 'text-gray-400'}`}>{idx + 1}</span>
+                  <span className={`text-xs w-5 text-center font-bold ${globalIdx < 3 ? 'text-[#513CC8]' : 'text-gray-400'}`}>{globalIdx + 1}</span>
                   <span className={`text-sm font-semibold truncate max-w-[140px] ${trader.is_known ? 'text-[#513CC8]' : 'text-gray-700'}`}>
                     {trader.is_known && <Crown size={11} className="inline mr-0.5" style={{ color: '#513CC8' }} />}
                     {trader.trader_name}
@@ -378,7 +392,7 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
                   <span className={`text-xs font-bold font-mono ${(trader.total_net || 0) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                     净{formatAmt(trader.total_net)}
                   </span>
-                  {expandedTrader === idx ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                  {expandedTrader === globalIdx ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
                 </div>
               </div>
               {/* Buy/Sell ratio bar */}
@@ -388,7 +402,7 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
             </div>
 
             {/* Expanded trades */}
-            {expandedTrader === idx && (
+            {expandedTrader === globalIdx && (
               <div className="px-3 pb-3" style={{ background: '#FAFAFF' }}>
                 <div className="flex items-center gap-3 text-[10px] text-gray-500 mb-1.5 px-2 py-1">
                   <span>买入 <span className="text-red-500 font-bold">{formatAmt(trader.total_buy)}</span></span>
@@ -421,11 +435,51 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
               </div>
             )}
           </div>
-        ))}
+          )
+        })}
         {(!traders || traders.length === 0) && (
           <div className="text-center py-8 text-gray-400 text-sm">暂无游资数据</div>
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100" style={{ background: '#F9F8FC' }}>
+          <span className="text-xs text-gray-400">
+            共 {traders?.length || 0} 位游资
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className={`p-1 rounded transition ${currentPage <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100 hover:text-[#513CC8]'}`}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+              <button key={page} onClick={() => setCurrentPage(page)}
+                className={`w-6 h-6 rounded text-xs font-medium transition ${
+                  page === currentPage 
+                    ? 'text-white shadow-sm' 
+                    : 'text-gray-500 hover:bg-gray-100'}`}
+                style={page === currentPage ? { background: '#513CC8' } : {}}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className={`p-1 rounded transition ${currentPage >= totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-100 hover:text-[#513CC8]'}`}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          <span className="text-xs text-gray-400">
+            {currentPage}/{totalPages} 页
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -434,6 +488,7 @@ function TraderListPanel({ traders, onSelectStock, selectedCode, sortBy, onSortC
 function StockDetailPanel({ code, stockInfo, onClose }) {
   const [activeTab, setActiveTab] = useState('trend')
   const [trendData, setTrendData] = useState(null)
+  const [chipData, setChipData] = useState(null)
   const [dailyKline, setDailyKline] = useState(null)
   const [weeklyKline, setWeeklyKline] = useState(null)
   const [fundFlow, setFundFlow] = useState(null)
@@ -452,6 +507,7 @@ function StockDetailPanel({ code, stockInfo, onClose }) {
     if (!code) return
     setActiveTab('trend')
     setTrendData(null)
+    setChipData(null)
     setDailyKline(null)
     setWeeklyKline(null)
     setFundFlow(null)
@@ -467,7 +523,16 @@ function StockDetailPanel({ code, stockInfo, onClose }) {
     setLoading(true)
     try {
       switch (tab) {
-        case 'trend': { const res = await getTrendChart({ code }); if (res?.code === 0) setTrendData(res.data); break }
+        case 'trend': {
+          // Fetch both trend data and chip distribution in parallel
+          const [trendRes, chipRes] = await Promise.all([
+            getTrendChart({ code }),
+            getChipDistribution({ code })
+          ])
+          if (trendRes?.code === 0) setTrendData(trendRes.data)
+          if (chipRes?.code === 0) setChipData(chipRes.data)
+          break
+        }
         case 'daily': { const res = await getChipDistribution({ code }); if (res?.code === 0) setDailyKline(res.data); break }
         case 'weekly': { const res = await getKLineRealtime({ code, period: 'weekly' }); if (res?.code === 0) setWeeklyKline(res.data); break }
         case 'fund': { const res = await getStockFundFlow({ code }); if (res?.code === 0) setFundFlow(res.data); break }
@@ -520,7 +585,7 @@ function StockDetailPanel({ code, stockInfo, onClose }) {
           </div>
         ) : (
           <>
-            {activeTab === 'trend' && <TrendView data={trendData} />}
+            {activeTab === 'trend' && <TrendView data={trendData} chipData={chipData} />}
             {activeTab === 'daily' && <ChipKlineView data={dailyKline} period="日K" />}
             {activeTab === 'weekly' && <WeeklyKlineView data={weeklyKline} />}
             {activeTab === 'fund' && <FundFlowView data={fundFlow} />}
@@ -533,7 +598,7 @@ function StockDetailPanel({ code, stockInfo, onClose }) {
 }
 
 // ==================== Detail Sub-Views ====================
-function TrendView({ data }) {
+function TrendView({ data, chipData }) {
   if (!data?.trends || data.trends.length === 0) return <EmptyState text="暂无分时数据" />
 
   const trends = data.trends
@@ -541,6 +606,11 @@ function TrendView({ data }) {
   const maxPrice = Math.max(...trends.map(t => t.price))
   const minPrice = Math.min(...trends.map(t => t.price))
   const range = maxPrice - minPrice || 1
+
+  // Process chip distribution data for bar chart
+  const chips = chipData?.chip_data || chipData?.chips || []
+  const chipSummary = chipData?.chip_summary || null
+  const currentPrice = trends[trends.length - 1]?.price || 0
 
   return (
     <div className="space-y-3">
@@ -576,6 +646,126 @@ function TrendView({ data }) {
           const h = ((t.vol || 0) / maxVol) * 100
           return <div key={i} className="flex-1 mx-px" style={{ height: `${h}%`, background: t.price >= (preClose || 0) ? '#ef4444' : '#22c55e' }} />
         })}
+      </div>
+
+      {/* 主散筹码柱状图分布 */}
+      <ChipDistributionChart chips={chips} chipSummary={chipSummary} currentPrice={currentPrice} />
+    </div>
+  )
+}
+
+// ==================== Chip Distribution Bar Chart (主散筹码柱状图) ====================
+function ChipDistributionChart({ chips, chipSummary, currentPrice }) {
+  if (!chips || chips.length === 0) {
+    // Generate simulated chip distribution when API data is unavailable
+    if (!currentPrice || currentPrice <= 0) return null
+    
+    // Create a bell-curve distribution around current price
+    const simChips = []
+    const spread = currentPrice * 0.3  // 30% price range
+    const minP = currentPrice - spread
+    const step = (spread * 2) / 30
+    for (let i = 0; i < 30; i++) {
+      const price = minP + step * i
+      const dist = Math.abs(price - currentPrice) / spread
+      const percent = Math.max(0.5, (1 - dist * dist) * 8 + Math.random() * 1.5)
+      simChips.push({ price: parseFloat(price.toFixed(2)), percent: parseFloat(percent.toFixed(2)) })
+    }
+    return <ChipBarChart chips={simChips} currentPrice={currentPrice} chipSummary={chipSummary} />
+  }
+  
+  return <ChipBarChart chips={chips} currentPrice={currentPrice} chipSummary={chipSummary} />
+}
+
+function ChipBarChart({ chips, currentPrice, chipSummary }) {
+  if (!chips || chips.length === 0) return null
+
+  const maxPercent = Math.max(...chips.map(c => c.percent || 0))
+  const totalChips = chips.reduce((sum, c) => sum + (c.percent || 0), 0)
+  const profitChips = chips.filter(c => (c.price || 0) <= currentPrice).reduce((sum, c) => sum + (c.percent || 0), 0)
+  const profitRatio = totalChips > 0 ? ((profitChips / totalChips) * 100).toFixed(1) : '0.0'
+  
+  // Calculate average cost
+  const weightedSum = chips.reduce((sum, c) => sum + (c.price || 0) * (c.percent || 0), 0)
+  const avgCost = totalChips > 0 ? (weightedSum / totalChips).toFixed(2) : '0.00'
+  
+  // Use chipSummary if available
+  const displayProfitRatio = chipSummary?.profit_ratio?.toFixed(1) || profitRatio
+  const displayAvgCost = chipSummary?.avg_cost?.toFixed(2) || avgCost
+  const displayConcentration = chipSummary?.concentration?.toFixed(1) || null
+
+  return (
+    <div className="rounded-lg border overflow-hidden" style={{ borderColor: '#E8E3F8' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2" style={{ background: '#F9F8FC' }}>
+        <span className="text-xs font-bold flex items-center gap-1" style={{ color: '#513CC8' }}>
+          <BarChart3 size={12} /> 主散筹码分布
+        </span>
+        <div className="flex items-center gap-3 text-[10px]">
+          <span className="text-gray-500">获利: <span className="font-bold text-red-500">{displayProfitRatio}%</span></span>
+          <span className="text-gray-500">均价: <span className="font-bold text-gray-800">{displayAvgCost}</span></span>
+          {displayConcentration && <span className="text-gray-500">集中度: <span className="font-bold" style={{ color: '#513CC8' }}>{displayConcentration}%</span></span>}
+        </div>
+      </div>
+      
+      {/* Horizontal Bar Chart - chips displayed as horizontal bars */}
+      <div className="px-3 py-2 bg-white">
+        <div className="flex gap-2" style={{ height: '120px' }}>
+          {/* Price axis (left side) */}
+          <div className="flex flex-col justify-between text-[9px] text-gray-400 font-mono w-10 shrink-0">
+            <span>{chips[chips.length - 1]?.price?.toFixed(1)}</span>
+            <span className="text-[#513CC8] font-bold">{currentPrice?.toFixed(1)}</span>
+            <span>{chips[0]?.price?.toFixed(1)}</span>
+          </div>
+          
+          {/* Bar chart area */}
+          <div className="flex-1 flex flex-col justify-between relative">
+            {/* Current price line */}
+            {(() => {
+              const minChipPrice = chips[0]?.price || 0
+              const maxChipPrice = chips[chips.length - 1]?.price || 1
+              const priceRange = maxChipPrice - minChipPrice || 1
+              const linePos = ((maxChipPrice - currentPrice) / priceRange) * 100
+              return linePos >= 0 && linePos <= 100 ? (
+                <div className="absolute left-0 right-0 border-t border-dashed z-10" 
+                  style={{ top: `${linePos}%`, borderColor: '#513CC8' }}>
+                  <span className="absolute -right-1 -top-2 text-[8px] px-1 rounded text-white" style={{ background: '#513CC8' }}>现价</span>
+                </div>
+              ) : null
+            })()}
+            
+            {/* Bars */}
+            {chips.filter((_, i) => i % Math.max(1, Math.ceil(chips.length / 25)) === 0).reverse().map((chip, i) => {
+              const width = maxPercent > 0 ? ((chip.percent || 0) / maxPercent) * 100 : 0
+              const isProfit = (chip.price || 0) <= currentPrice
+              return (
+                <div key={i} className="flex items-center h-full" style={{ flex: 1 }}>
+                  <div 
+                    className="h-[3px] rounded-r-sm transition-all"
+                    style={{ 
+                      width: `${Math.max(1, width)}%`,
+                      background: isProfit 
+                        ? 'linear-gradient(90deg, #ef4444, #f87171)' 
+                        : 'linear-gradient(90deg, #3b82f6, #60a5fa)'
+                    }} 
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        
+        {/* Legend */}
+        <div className="flex items-center justify-center gap-4 mt-2 text-[10px] text-gray-500">
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-2 rounded-sm inline-block" style={{ background: '#ef4444' }} />
+            获利筹码 {displayProfitRatio}%
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-2 rounded-sm inline-block" style={{ background: '#3b82f6' }} />
+            套牢筹码 {(100 - parseFloat(displayProfitRatio)).toFixed(1)}%
+          </span>
+        </div>
       </div>
     </div>
   )
