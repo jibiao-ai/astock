@@ -43,7 +43,12 @@ rabbitmq_data/
 # Go
 /backend/tmp/
 
-# Test
+# Test binaries
 coverage/
 *.cover
 backend/server
+backend/server_*
+
+# SQLite WAL/SHM
+*.db-wal
+*.db-shm

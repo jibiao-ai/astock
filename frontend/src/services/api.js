@@ -52,6 +52,15 @@ export const getMarketHotList = (params) => api.get('/market/hot-list', { params
 export const getKLineRealtime = (params) => api.get('/market/kline-realtime', { params })
 export const getGubaDiscussion = (params) => api.get('/market/guba', { params })
 
+// Tushare-backed dashboard data (落库+历史查询+刷新)
+export const getTsDragonTiger = (params) => api.get('/market/ts-dragon-tiger', { params })
+export const getTsLimitUpList = (params) => api.get('/market/ts-limit-up', { params })
+export const getTsLimitStats = (params) => api.get('/market/ts-limit-stats', { params })
+export const getTsLimitStep = (params) => api.get('/market/ts-limit-step', { params })
+export const getTsStkAuction = (params) => api.get('/market/ts-auction', { params })
+export const getTsMoneyflow = (params) => api.get('/market/ts-moneyflow', { params })
+export const getTsRealTimeStats = (params) => api.get('/market/ts-realtime-stats', { params })
+
 // Watchlist
 export const getWatchlist = () => api.get('/watchlist')
 export const addWatchlistItem = (data) => api.post('/watchlist', data)
