@@ -23,6 +23,10 @@ func main() {
 	cfg := config.Load()
 	middleware.SetJWTSecret(cfg.JWTSecret)
 	repository.InitDB(cfg)
+
+	// Migrate Tushare dashboard models (龙虎榜/涨跌停/连板/竞价/资金流向)
+	handler.AutoMigrateDashboardModels(repository.DB)
+
 	mq.InitRabbitMQ(cfg)
 	defer mq.Close()
 
@@ -83,6 +87,15 @@ func main() {
 		auth.GET("/market/hot-list", h.GetMarketHotList)
 		auth.GET("/market/kline-realtime", h.GetKLineRealtime)
 		auth.GET("/market/guba", h.GetGubaDiscussion)
+
+		// Tushare-backed dashboard data (落库+历史查询+刷新)
+		auth.GET("/market/ts-dragon-tiger", h.GetTsDragonTiger)       // 龙虎榜游资
+		auth.GET("/market/ts-limit-up", h.GetTsLimitUpList)           // 涨停榜
+		auth.GET("/market/ts-limit-stats", h.GetTsLimitStats)         // 涨跌停+炸板统计
+		auth.GET("/market/ts-limit-step", h.GetTsLimitStep)           // 连板天梯
+		auth.GET("/market/ts-auction", h.GetTsStkAuction)             // 集合竞价
+		auth.GET("/market/ts-moneyflow", h.GetTsMoneyflow)            // 资金流向
+		auth.GET("/market/ts-realtime-stats", h.GetTsRealTimeStats)   // Tushare实时统计
 
 		// AI Stock Pick (杨永兴隔夜套利法)
 		auth.GET("/market/ai-stock-picks", h.GetAIStockPicks)

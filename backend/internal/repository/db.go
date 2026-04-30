@@ -21,7 +21,10 @@ func InitDB(cfg *config.Config) {
 	var dialector gorm.Dialector
 
 	if cfg.DBDriver == "sqlite" {
-		dialector = sqlite.Open("quantmind.db")
+		// Use WAL mode with synchronous=NORMAL for crash-safe writes without performance penalty.
+		// busy_timeout prevents SQLITE_BUSY errors under concurrent access.
+		// _journal=WAL ensures writes are visible immediately to all connections.
+		dialector = sqlite.Open("quantmind.db?_journal=WAL&_busy_timeout=5000&_synchronous=NORMAL&cache=shared")
 	} else {
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 			cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName)
@@ -63,6 +66,19 @@ func InitDB(cfg *config.Config) {
 		log.Fatalf("Failed to connect to database after %d attempts: %v", maxRetries, err)
 	}
 
+	// SQLite-specific optimizations: ensure WAL checkpoint happens regularly
+	if cfg.DBDriver == "sqlite" {
+		sqlDB, _ := DB.DB()
+		if sqlDB != nil {
+			// Limit to 1 connection for SQLite to avoid locking issues
+			sqlDB.SetMaxOpenConns(1)
+			// Verify WAL mode is active
+			var journalMode string
+			sqlDB.QueryRow("PRAGMA journal_mode").Scan(&journalMode)
+			log.Printf("[DB] SQLite journal_mode = %s", journalMode)
+		}
+	}
+
 	// Auto migrate
 	err = DB.AutoMigrate(
 		&model.User{},
@@ -87,6 +103,8 @@ func InitDB(cfg *config.Config) {
 		&model.AIStockPickBatch{},
 		&model.SystemConfig{},
 	)
+	// Migrate Tushare dashboard models (龙虎榜/涨跌停/连板/竞价/资金流)
+	// Done via handler.AutoMigrateDashboardModels in main.go to avoid circular import
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
