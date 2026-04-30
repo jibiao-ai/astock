@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>A股 AI 量化炒股平台</strong><br/>
-  <sub>Intelligent A-Stock Quantitative Trading Platform Powered by Hermes Agent</sub>
+  <sub>基于 Hermes Agent 架构的智能 A 股量化交易平台</sub>
 </p>
 
 <p align="center">
@@ -20,501 +20,619 @@
 
 ---
 
-## Overview
+## 项目简介
 
-QuantMind is a full-stack AI-powered quantitative trading platform for China's A-share stock market. It combines real-time market data from multiple sources, nine quantitative strategies, four AI agents built on the Hermes Agent architecture, and a clean modern UI — all deployable with a single `docker-compose up`.
+QuantMind 是一套面向中国 A 股市场的全栈 AI 量化交易平台。它集成了多渠道实时行情数据（Tushare / 东方财富 / 新浪 / 腾讯）、9 套量化策略、4 个基于 Hermes Agent 架构的 AI 智能体，以及简洁现代的 UI 界面 —— 全部可通过一条 `docker-compose up` 命令完成部署。
 
-**Design Principles**
+**设计原则**
 
-- All parameters are configured through the UI — no manual backend editing
-- Every metric, label, and threshold comes from real external data sources
-- Strategy thresholds are derived from documented technical analysis standards
-- AI responses must cite specific data sources and analysis systems
-
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Getting Started](#getting-started)
-- [Project Structure](#project-structure)
-- [Market Data Sources](#market-data-sources)
-- [AI Agents](#ai-agents)
-- [Quantitative Strategies](#quantitative-strategies)
-- [API Reference](#api-reference)
-- [Configuration](#configuration)
-- [License](#license)
+- 所有参数均通过 UI 配置 —— 无需手动修改后端代码
+- 每一个指标、标签、阈值均来源于真实外部数据
+- 策略阈值基于已论证的技术分析标准
+- AI 回答必须引用具体的数据来源和分析体系
 
 ---
 
-## Features
+## 目录
 
-### Dashboard
-
-A full-screen data dashboard with 7-day history and day-by-day navigation:
-
-| Module | Description |
-|--------|-------------|
-| Sector Heat Map | Color-coded tiles showing sector performance |
-| Limit-Up Board | Stocks at daily price limit with seal strength |
-| Board Ladder | Multi-day consecutive limit-up visualization |
-| Broken Board | Stocks that failed to hold daily limit |
-| Dragon & Tiger List | Institutional buy/sell/net data |
-| Sentiment Index | 0–100 market emotion score |
-| Fund Flow | Net capital inflow by sector (bar chart) |
-| Turnover Trend | 5-day total market turnover |
-| Up/Down Distribution | Pie chart of advancing vs declining stocks |
-
-### Real-Time Quotes (4 Channels)
-
-| Source | Endpoint | Data |
-|--------|----------|------|
-| Sina Finance | hq.sinajs.cn | Live quotes, historical K-line |
-| Tencent Finance | qt.gtimg.cn | Live quotes, sector data |
-| Eastmoney | push2.eastmoney.com | Quotes, fund flow, Dragon & Tiger |
-| TDX | Reserved | Level-2 data |
-
-### AI Chat (4 Agents)
-
-Four specialized agents with Markdown rendering and conversation history. See [AI Agents](#ai-agents) for details.
-
-### 9 Quant Strategies
-
-Each strategy has documented scoring factors, threshold rules, and data sources. See [Quantitative Strategies](#quantitative-strategies) for details.
-
-### AI Model Management
-
-Page-based configuration for 12 pre-loaded providers — fill in your API key directly in the UI:
-
-> OpenAI / DeepSeek / Qwen (Tongyi) / GLM (Zhipu) / Kimi (Moonshot) / Baichuan / MiniMax / Doubao (Volcengine) / SiliconFlow / Anthropic Claude / Google Gemini / MiaoXiang API
-
-### Audit Logging
-
-Full-chain audit trail: login events, agent invocations, data access, strategy execution, and admin operations — with filtering by module, user, and time range.
+- [核心功能](#核心功能)
+- [系统架构](#系统架构)
+- [技术栈](#技术栈)
+- [快速开始](#快速开始)
+- [项目结构](#项目结构)
+- [行情数据源](#行情数据源)
+- [AI 智能体](#ai-智能体)
+- [量化策略](#量化策略)
+- [API 接口文档](#api-接口文档)
+- [配置说明](#配置说明)
+- [版本记录](#版本记录)
+- [许可证](#许可证)
 
 ---
 
-## Architecture
+## 核心功能
+
+### 行情看板大屏
+
+全屏数据看板，支持 7 日历史记录和逐日导航：
+
+| 模块 | 说明 |
+|------|------|
+| 板块热力图 | 板块涨跌幅色块展示，颜色越深涨跌越大 |
+| 涨停板 | 封板强度分级、涨停原因标注 |
+| 连板天梯 | 多日连续涨停可视化梯度 |
+| 炸板监控 | 封板失败个股追踪 |
+| 龙虎榜 | 机构/游资买卖净额数据 |
+| 情绪温度计 | 0–100 市场情绪评分 |
+| 资金流向 | 板块净流入柱状图 |
+| 成交额趋势 | 近 5 日全市场成交额走势 |
+| 涨跌分布 | 上涨/下跌/平盘比例分布图 |
+| 大盘指数 | 上证/深证/创业板实时行情 |
+
+### 游资打板
+
+专业游资跟踪分析页面（v2.0+）：
+
+| 模块 | 说明 |
+|------|------|
+| 日历网格 | 月历形式展示，交易日高亮，支持前后翻页追溯 |
+| 游资排行 | 左侧 50% 展示游资实力排行及买卖详情 |
+| 个股信息 | 右侧 50% 展示选中个股的详细信息面板 |
+| 买卖比例条 | 可视化展示游资买入/卖出金额占比 |
+| 默认选中 | 数据加载后自动选中排名第一的游资及其首只个股 |
+
+### 实时行情（4 通道）
+
+| 来源 | 接口 | 数据内容 |
+|------|------|----------|
+| 新浪财经 | hq.sinajs.cn | 实时报价、历史 K 线 |
+| 腾讯财经 | qt.gtimg.cn | 实时报价、板块数据 |
+| 东方财富 | push2.eastmoney.com | 报价、资金流、龙虎榜 |
+| 通达信 | 预留 | Level-2 行情 |
+
+### Tushare 数据接口（v2.1 已验证）
+
+| 接口 | 数据量/说明 | 状态 |
+|------|-------------|------|
+| daily | 5,460 只股票涨跌幅+成交额 | 可用 |
+| daily_basic | 市值/流通市值/换手率 | 可用 |
+| index_daily | 沪深成交额（千元单位） | 可用 |
+| stk_limit | 7,574 只股票涨跌停价 | 可用 |
+| moneyflow | 5,151 只股票资金流向 | 可用 |
+| moneyflow_ind_ths | 90 个行业板块热力 | 可用（偶有超时） |
+| moneyflow_hsgt | 北向/南向资金 | 可用 |
+| concept | 879 个概念板块 | 可用 |
+| trade_cal | 交易日历 | 可用 |
+| limit_list_d | 涨跌停明细 | 受限（1次/小时） |
+| limit_step / ths_daily | 连板/同花顺指数 | 无权限 |
+
+### AI 对话（4 个智能体）
+
+四个专业智能体，支持 Markdown 渲染和对话历史。详见 [AI 智能体](#ai-智能体)。
+
+### 9 套量化策略
+
+每套策略均有完整的评分因子、阈值规则和数据来源说明。详见 [量化策略](#量化策略)。
+
+### AI 模型管理
+
+页面化配置 12 个预置供应商 —— 直接在 UI 中填入 API Key 即可使用：
+
+> OpenAI / DeepSeek / 通义千问 / 智谱 GLM / Kimi / 百川 / MiniMax / 豆包 / SiliconFlow / Anthropic Claude / Google Gemini / 妙想 API
+
+### 审计日志
+
+全链路审计追踪：登录事件、智能体调用、数据访问、策略执行、管理操作 —— 支持按模块、用户、时间范围筛选。
+
+---
+
+## 系统架构
 
 ```
-                        Browser
+                        浏览器
                           |
-                    Nginx (Port 80)
+                    Nginx (80端口)
                    /              \
-            Static (React)     /api/* -> Backend
+            静态资源 (React)    /api/* -> 后端
                                   |
                          Go + Gin (:8080)
                      /      |      \
-                JWT Auth   CORS   Audit MW
+                JWT认证    CORS   审计中间件
                      |
           +----------+----------+----------+----------+
           |          |          |          |          |
-        Auth      Agent     Market    Strategy    Admin
+        认证       智能体      行情       策略       管理
           |          |          |          |          |
        +--+--+       |    +----+----+     |          |
-     MySQL  RabbitMQ |    Sina      |  Baostock     |
-     :3306   :5672   |    Tencent   |  Eastmoney    |
-                     |    Eastmoney |               |
+     MySQL  RabbitMQ |    Tushare   |  东方财富     |
+     :3306   :5672   |    新浪     |  Baostock    |
+                     |    腾讯     |               |
+                     |    东方财富  |               |
                      |              |               |
                      +------ Hermes Agent ----------+
-                            (LLM API calls)
+                            (大模型 API 调用)
 ```
 
----
+### 数据获取优先级
 
-## Tech Stack
+```
+Tushare daily（全量快照）→ 东方财富实时 API → 数据库缓存 → 历史数据 → 默认值
+```
 
-### Backend
-
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| Go | 1.22 | Server language |
-| Gin | 1.10 | HTTP framework |
-| GORM | 1.25 | ORM (MySQL + SQLite) |
-| MySQL | 8.0 | Production database |
-| SQLite | - | Development database |
-| RabbitMQ | 3.13 | Message queue (4 queues) |
-| JWT (golang-jwt) | 5.x | Authentication |
-| bcrypt | - | Password hashing |
-| Logrus | 1.9 | Structured logging |
-
-### Frontend
-
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| React | 18.3 | UI framework |
-| Vite | 5.4 | Build tool |
-| Tailwind CSS | 3.4 | Utility-first CSS |
-| Zustand | 4.5 | State management |
-| Recharts | 2.12 | Charts (area, bar, pie, line) |
-| React Router | 6.26 | Client-side routing |
-| Axios | 1.7 | HTTP client |
-| Lucide React | 0.436 | Icon library |
-| react-hot-toast | 2.4 | Notifications |
-| react-markdown | - | Markdown rendering in chat |
-
-### Infrastructure
-
-| Technology | Purpose |
-|------------|---------|
-| Docker | Containerization (multi-stage builds) |
-| Docker Compose | Service orchestration (4 services) |
-| Nginx | Reverse proxy + SPA fallback |
+> 确保任何情况下不返回零值或"暂无数据"。
 
 ---
 
-## Getting Started
+## 技术栈
 
-### Prerequisites
+### 后端
 
-- **Docker + Docker Compose** (recommended), or
-- **Go 1.22+** and **Node.js 18+** for development mode
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Go | 1.22 | 服务端语言 |
+| Gin | 1.10 | HTTP 框架 |
+| GORM | 1.25 | ORM（MySQL + SQLite） |
+| MySQL | 8.0 | 生产环境数据库 |
+| SQLite | - | 开发环境数据库 |
+| RabbitMQ | 3.13 | 消息队列（4 队列） |
+| JWT (golang-jwt) | 5.x | 身份认证 |
+| bcrypt | - | 密码加密 |
+| Logrus | 1.9 | 结构化日志 |
 
-### Option 1: Docker Compose (Production)
+### 前端
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| React | 18.3 | UI 框架 |
+| Vite | 5.4 | 构建工具 |
+| Tailwind CSS | 3.4 | 原子化 CSS |
+| Zustand | 4.5 | 状态管理 |
+| Recharts | 2.12 | 图表（面积图、柱状图、饼图、折线图） |
+| React Router | 6.26 | 客户端路由 |
+| Axios | 1.7 | HTTP 客户端 |
+| Lucide React | 0.436 | 图标库 |
+| react-hot-toast | 2.4 | 通知提示 |
+| react-markdown | - | 聊天 Markdown 渲染 |
+
+### 基础设施
+
+| 技术 | 用途 |
+|------|------|
+| Docker | 容器化（多阶段构建） |
+| Docker Compose | 服务编排（4 个服务） |
+| Nginx | 反向代理 + SPA 路由回退 |
+
+---
+
+## 快速开始
+
+### 前置要求
+
+- **Docker + Docker Compose**（推荐），或
+- **Go 1.22+** 和 **Node.js 18+**（开发模式）
+
+### 方式一：Docker Compose（生产环境）
 
 ```bash
 git clone https://github.com/jibiao-ai/astock.git
 cd astock
 
-# Copy and edit environment variables
+# 复制并编辑环境变量
 cp .env.example .env
-# Edit .env — at minimum set your AI_API_KEY
+# 编辑 .env —— 至少设置 AI_API_KEY
 
-# Start all services
+# 启动所有服务
 docker-compose up -d
 
-# Open http://localhost in your browser
+# 浏览器访问 http://localhost
 ```
 
-> **China users**: The backend Dockerfile includes `GOPROXY=https://goproxy.cn,direct` for fast module downloads.
+> **国内用户**：后端 Dockerfile 已配置 `GOPROXY=https://goproxy.cn,direct` 加速模块下载。
 
-### Option 2: Development Mode
+### 方式二：开发模式
 
 ```bash
-# Terminal 1 — Backend (uses SQLite, no MySQL required)
+# 终端 1 —— 后端（使用 SQLite，无需 MySQL）
 cd backend
 export DB_DRIVER=sqlite
 go run ./cmd/server
-# API available at http://localhost:8080
+# API 地址：http://localhost:8080
 
-# Terminal 2 — Frontend
+# 终端 2 —— 前端
 cd frontend
 npm install
 npm run dev
-# UI available at http://localhost:3000 (proxies /api to :8080)
+# UI 地址：http://localhost:3000（自动代理 /api 到 :8080）
 ```
 
-### Default Login
+### 默认登录账号
 
-| Field | Value |
-|-------|-------|
-| Username | `admin` |
-| Password | `Admin@2026!` |
-| Role | Administrator |
+| 字段 | 值 |
+|------|-----|
+| 用户名 | `admin` |
+| 密码 | `Admin@2026!` |
+| 角色 | 管理员 |
 
-### Service Ports
+### 服务端口
 
-| Service | Port | Description |
-|---------|------|-------------|
-| Frontend | 80 | Web UI (Nginx) |
-| Backend | 8080 | REST API (Gin) |
-| MySQL | 3306 | Database |
-| RabbitMQ | 5672 | Message queue |
-| RabbitMQ UI | 15672 | Management console |
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| 前端 | 80 | Web 界面（Nginx） |
+| 后端 | 8080 | REST API（Gin） |
+| MySQL | 3306 | 数据库 |
+| RabbitMQ | 5672 | 消息队列 |
+| RabbitMQ 管理 | 15672 | 管理控制台 |
 
 ---
 
-## Project Structure
+## 项目结构
 
 ```
-quantmind/
-├── backend/                          # Go backend
-│   ├── cmd/server/main.go           # Entry point, route definitions
+astock/
+├── backend/                              # Go 后端
+│   ├── cmd/server/main.go               # 入口、路由定义
 │   ├── internal/
-│   │   ├── config/config.go         # Environment config loader
+│   │   ├── config/config.go             # 环境变量配置加载
 │   │   ├── handler/
-│   │   │   ├── handlers.go          # All API handlers (30+ endpoints)
-│   │   │   └── marketfetch.go       # Eastmoney API integration + data seeding
-│   │   ├── middleware/auth.go       # JWT / RBAC / Audit middleware
-│   │   ├── model/models.go         # GORM models (17 tables)
-│   │   ├── mq/rabbitmq.go          # RabbitMQ client (4 queues)
-│   │   └── repository/db.go        # DB init + seed data
+│   │   │   ├── handlers.go              # 所有 API 处理器（30+ 接口）
+│   │   │   ├── dashboard_overview.go    # 看板大屏数据聚合（多源回退）
+│   │   │   ├── eastmoney.go             # 东方财富 API 集成
+│   │   │   ├── tushare.go              # Tushare 基础接口
+│   │   │   ├── tushare_dashboard.go     # Tushare 看板数据
+│   │   │   ├── tushare_hotmoney.go      # 游资打板数据
+│   │   │   ├── tushare_broadcast.go     # 播报数据
+│   │   │   ├── marketfetch.go           # 行情抓取 + 数据播种
+│   │   │   └── aistockpick.go           # AI 选股
+│   │   ├── middleware/auth.go           # JWT / RBAC / 审计中间件
+│   │   ├── model/models.go             # GORM 模型（17 张表）
+│   │   ├── mq/rabbitmq.go              # RabbitMQ 客户端（4 队列）
+│   │   └── repository/db.go            # 数据库初始化 + 种子数据
 │   ├── pkg/
-│   │   ├── logger/logger.go        # Logrus-based logger
-│   │   └── response/response.go    # Unified API response helpers
-│   ├── Dockerfile                   # Multi-stage build (with GOPROXY)
+│   │   ├── logger/logger.go            # Logrus 日志封装
+│   │   └── response/response.go        # 统一 API 响应工具
+│   ├── Dockerfile                       # 多阶段构建（含 GOPROXY）
 │   ├── go.mod
 │   └── go.sum
 │
-├── frontend/                         # React frontend
+├── frontend/                             # React 前端
 │   ├── public/
-│   │   ├── logo.svg                 # QuantMind brand logo (512x512)
-│   │   └── favicon.svg              # Browser favicon (32x32)
+│   │   ├── logo.svg                     # QuantMind 品牌 Logo
+│   │   └── favicon.svg                  # 浏览器图标
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── MainLayout.jsx       # App shell with sidebar + content
-│   │   │   └── Sidebar.jsx          # Navigation sidebar with logo
+│   │   │   ├── MainLayout.jsx           # 应用外壳（侧边栏 + 内容区）
+│   │   │   └── Sidebar.jsx              # 导航侧边栏
 │   │   ├── pages/
-│   │   │   ├── LoginPage.jsx        # Login with QuantMind branding
-│   │   │   ├── DashboardPage.jsx    # Market dashboard (10 widgets)
-│   │   │   ├── RealtimePage.jsx     # Real-time quotes (4 sources)
-│   │   │   ├── ChatPage.jsx         # AI conversation (Markdown)
-│   │   │   ├── StrategiesPage.jsx   # 9 strategy cards with details
-│   │   │   ├── SignalsPage.jsx      # Strategy signal table
-│   │   │   ├── AgentsPage.jsx       # Agent CRUD + skill binding
-│   │   │   ├── AIModelsPage.jsx     # Provider config (12 vendors)
-│   │   │   ├── UsersPage.jsx        # User management
-│   │   │   └── AuditLogPage.jsx     # Audit log viewer
-│   │   ├── services/api.js          # Axios API client
-│   │   ├── store/useStore.js        # Zustand global store
-│   │   └── styles/index.css         # Global styles + CSS variables
-│   ├── Dockerfile                   # Multi-stage build (Node + Nginx)
-│   ├── nginx.conf                   # Reverse proxy config
-│   ├── vite.config.js               # Dev server + proxy
-│   ├── tailwind.config.js           # Brand color palette
+│   │   │   ├── LoginPage.jsx            # 登录页
+│   │   │   ├── DashboardPage.jsx        # 行情看板大屏（10 个组件）
+│   │   │   ├── HotMoneyBoardPage.jsx    # 游资打板（日历+排行+个股）
+│   │   │   ├── RealtimePage.jsx         # 实时行情（4 数据源）
+│   │   │   ├── ChatPage.jsx             # AI 对话（Markdown 渲染）
+│   │   │   ├── StrategiesPage.jsx       # 9 策略卡片详情
+│   │   │   ├── SignalsPage.jsx          # 策略信号表
+│   │   │   ├── BroadcastPage.jsx        # 盘中播报
+│   │   │   ├── HotListPage.jsx          # 热门排行
+│   │   │   ├── AIStockPickPage.jsx      # AI 选股
+│   │   │   ├── StockPickPage.jsx        # 选股池
+│   │   │   ├── WatchlistPage.jsx        # 自选股
+│   │   │   ├── AgentsPage.jsx           # 智能体管理
+│   │   │   ├── AIModelsPage.jsx         # AI 供应商配置（12 家）
+│   │   │   ├── SettingsPage.jsx         # 系统设置
+│   │   │   ├── UsersPage.jsx            # 用户管理
+│   │   │   └── AuditLogPage.jsx         # 审计日志
+│   │   ├── services/api.js              # Axios API 客户端
+│   │   ├── store/useStore.js            # Zustand 全局状态
+│   │   └── styles/index.css             # 全局样式 + CSS 变量
+│   ├── Dockerfile                       # 多阶段构建（Node + Nginx）
+│   ├── nginx.conf                       # 反向代理配置
+│   ├── vite.config.js                   # 开发服务器 + 代理
+│   ├── tailwind.config.js               # 品牌色板
 │   └── package.json
 │
-├── docker-compose.yml                # 4-service orchestration
-├── .env.example                      # Environment variable template
-├── LICENSE                           # MIT License
+├── docker/                               # Docker 相关配置
+├── docs/                                 # 文档
+├── scripts/                              # 脚本工具
+├── docker-compose.yml                    # 4 服务编排
+├── .env.example                          # 环境变量模板
+├── LICENSE                               # MIT 许可证
 └── README.md
 ```
 
 ---
 
-## Market Data Sources
+## 行情数据源
 
-QuantMind integrates three live API sources for A-share market data, with a fourth reserved:
+QuantMind 集成多渠道 A 股行情数据，支持多源回退保障数据可用性：
 
-### Eastmoney (东方财富)
+### Tushare（主数据源）
 
-| API | Endpoint | Data |
-|-----|----------|------|
-| Sector Heat | push2.eastmoney.com | 16 sector tiles with change%, lead stock, fund flow |
-| Limit-Up Board | push2ex.eastmoney.com | Limit-up/broken-board stocks with seal count |
-| Dragon & Tiger | datacenter-web.eastmoney.com | Institutional buy/sell by stock |
+| 接口 | 数据内容 | 单位说明 |
+|------|----------|----------|
+| daily | 全市场 5,460 只股票日行情（涨跌幅、成交额） | 成交额单位：千元 |
+| index_daily | 上证/深证/创业板指数行情 | 成交额单位：千元 |
+| daily_basic | 总市值、流通市值、换手率 | - |
+| stk_limit | 涨跌停价 | - |
+| moneyflow | 个股资金流向 | - |
+| moneyflow_ind_ths | 行业板块资金流 | - |
+| moneyflow_hsgt | 沪深港通资金 | 万元 |
+| concept / concept_detail | 概念板块数据 | - |
+| trade_cal | 交易日历 | - |
 
-### Sina Finance (新浪财经)
+> **重要单位换算**（v2.1 修复）：
+> - 千元 → 万亿：÷ 1e9
+> - 千元 → 亿：÷ 1e5
+> - 万亿 → 亿：× 10000
+> - 元 → 万亿：÷ 1e12
+> - 元 → 亿：÷ 1e8
 
-| API | Endpoint | Data |
-|-----|----------|------|
-| Real-time Quote | hq.sinajs.cn | Price, volume, turnover for any A-share code |
+### 东方财富（实时回退源）
 
-### Tencent Finance (腾讯财经)
+| 接口 | 地址 | 数据内容 |
+|------|------|----------|
+| 板块热力 | push2.eastmoney.com | 板块涨跌幅、领涨股、资金流 |
+| 涨停池 | push2ex.eastmoney.com/getTopicZTPool | 实时涨停股票 |
+| 跌停池 | push2ex.eastmoney.com/getTopicDTPool | 实时跌停股票 |
+| 炸板池 | push2ex.eastmoney.com/getTopicZBPool | 封板失败股票 |
+| 龙虎榜 | datacenter-web.eastmoney.com | 机构买卖净额 |
+| 全市场成交 | push2.eastmoney.com (f6) | 沪深成交总额（元） |
 
-| API | Endpoint | Data |
-|-----|----------|------|
-| Real-time Quote | qt.gtimg.cn | Alternative quote source with sector data |
+### 新浪财经
 
-All fetched data is automatically persisted to the database for historical analysis by AI agents.
+| 接口 | 地址 | 数据内容 |
+|------|------|----------|
+| 实时报价 | hq.sinajs.cn | 价格、成交量、换手率 |
 
----
+### 腾讯财经
 
-## AI Agents
+| 接口 | 地址 | 数据内容 |
+|------|------|----------|
+| 实时报价 | qt.gtimg.cn | 备用行情源、板块数据 |
 
-Four specialized agents built on the **Hermes Agent** architecture:
-
-| Agent | Type | Data Sources | Capabilities |
-|-------|------|-------------|-------------|
-| Smart Ask | `smart_ask` | Baostock, Eastmoney, Sina | Stock lookup, technical indicators, fund flow |
-| Smart Diagnose | `smart_diagnose` | Multi-dimensional data | Investment value assessment, buy/sell timing |
-| Main Flow Analyst | `main_flow` | MiaoXiang API | Institutional positioning, chip distribution |
-| Quant Expert | `quant_expert` | Baostock, Eastmoney | Market opportunities, risk alerts, sector rotation |
-
-### Hermes Agent Protocol
-
-1. **Self-improvement** — Summarizes experience after each interaction
-2. **Persistent memory** — Cross-session context retention
-3. **Tool calling** — `<tool_call>` tags for external tool invocation
-4. **Skill system** — 16 bindable skills per agent
-
-### Pre-registered Skills (16)
-
-Market data query, K-line analysis, sector heat analysis, limit-up board analysis, Dragon & Tiger interpretation, sentiment scoring, fund flow tracking, stock diagnosis, strategy signal generation, risk assessment, opportunity scanning, trend analysis, concept tracking, auction analysis, portfolio optimization, and report generation.
-
----
-
-## Quantitative Strategies
-
-Nine strategies with documented scoring systems and evidence-based thresholds:
-
-| # | Strategy | Scoring System | Key Threshold |
-|---|----------|---------------|---------------|
-| 1 | **Dragon Board** | 11 factors / 130 pts | >= 90 strong buy; seal strength S-grade |
-| 2 | **Strong Pullback** | 11 factors / 180 pts | Dragon & Tiger net buy > 50M bonus |
-| 3 | **Trend Core** | Trend pool + buypoint | MA20/MA60 both rising, held 3+ days |
-| 4 | **Event Burst** | 7-step loop + 4-tier supply chain | Policy announcement -> verification -> entry |
-| 5 | **Concept Core** | 5 lifecycle phases | Buy at fermentation + sector resonance |
-| 6 | **Auction Pick** | Golden formula | Open +3-5%, auction vol 8-12%, bid ratio >60% |
-| 7 | **Group Hug** | 5-step funnel + 8 factors | Volume shrink to 50% of limit day -> reversal |
-| 8 | **Pre-Market Select** | 9-strategy composite | Composite score > 80 enters selection pool |
-| 9 | **Micro Overnight** | 2-level filter + sentiment gate | Sentiment > 50 open / < 30 close, target WR 72% |
-
-Each strategy card in the UI shows all scoring factors, threshold rules, and data source documentation.
+所有获取的数据均自动持久化至数据库，供 AI 智能体进行历史分析。
 
 ---
 
-## API Reference
+## AI 智能体
 
-### Public
+四个专业智能体，基于 **Hermes Agent** 架构构建：
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/login` | Authenticate and receive JWT token |
+| 智能体 | 类型标识 | 数据来源 | 能力 |
+|--------|----------|----------|------|
+| 智能问答 | `smart_ask` | Baostock / 东方财富 / 新浪 | 股票查询、技术指标、资金流向 |
+| 智能诊断 | `smart_diagnose` | 多维数据 | 投资价值评估、买卖时机判断 |
+| 主力分析 | `main_flow` | 妙想 API | 机构持仓、筹码分布 |
+| 量化专家 | `quant_expert` | Baostock / 东方财富 | 市场机会、风险预警、板块轮动 |
 
-### Authenticated (Bearer Token)
+### Hermes Agent 协议
 
-**User & Dashboard**
+1. **自我进化** — 每次交互后自动总结经验
+2. **持久记忆** — 跨会话上下文保持
+3. **工具调用** — 通过 `<tool_call>` 标签调用外部工具
+4. **技能系统** — 每个智能体最多绑定 16 个技能
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/profile` | Current user info |
-| GET | `/api/dashboard` | Full dashboard data (accepts `?date=`) |
+### 预注册技能（16 个）
 
-**Market Data**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/market/sentiment` | Market sentiment (accepts `?days=`) |
-| GET | `/api/market/sector-heat` | Sector heat map data |
-| GET | `/api/market/limit-up` | Limit-up board (accepts `?type=`) |
-| GET | `/api/market/dragon-tiger` | Dragon & Tiger list |
-| GET | `/api/market/board-ladder` | Consecutive board ladder |
-| GET | `/api/market/quote` | Real-time quote (`?code=&source=`) |
-| GET | `/api/market/kline` | K-line data (`?code=&period=`) |
-| GET | `/api/market/sectors` | Sector list |
-| POST | `/api/market/fetch` | Trigger Eastmoney data fetch |
-
-**AI Agents**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/agents` | List all agents |
-| POST | `/api/agents` | Create agent |
-| PUT | `/api/agents/:id` | Update agent |
-| DELETE | `/api/agents/:id` | Delete agent |
-| GET | `/api/skills` | List all skills |
-| POST | `/api/agents/:id/skills` | Bind skills to agent |
-| GET | `/api/conversations` | List conversations |
-| POST | `/api/conversations` | Create conversation |
-| GET | `/api/conversations/:id/messages` | Get messages |
-| POST | `/api/conversations/:id/messages` | Send message (triggers AI) |
-| DELETE | `/api/conversations/:id` | Delete conversation |
-
-**AI Providers**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/ai-providers` | List all providers |
-| POST | `/api/ai-providers` | Add provider |
-| PUT | `/api/ai-providers/:id` | Update provider config |
-| POST | `/api/ai-providers/:id/test` | Test connection |
-
-**Strategies**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/strategies` | List strategies |
-| GET | `/api/strategy-signals` | Signals (`?strategy=&date=`) |
-
-**Admin**
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/users` | List users |
-| POST | `/api/users` | Create user |
-| PUT | `/api/users/:id` | Update user |
-| DELETE | `/api/users/:id` | Delete user |
-| GET | `/api/audit-logs` | Audit logs (`?page=&module=&username=`) |
+行情数据查询、K 线分析、板块热力分析、涨停板分析、龙虎榜解读、情绪评分、资金流向追踪、个股诊断、策略信号生成、风险评估、机会扫描、趋势分析、概念追踪、集合竞价分析、组合优化、报告生成。
 
 ---
 
-## Configuration
+## 量化策略
 
-All configuration is done through environment variables. Copy `.env.example` to `.env` and edit:
+九套策略，每套均有完整评分体系和循证阈值：
 
-### Server
+| # | 策略名称 | 评分体系 | 核心阈值 |
+|---|----------|----------|----------|
+| 1 | **龙头打板** | 11因子 / 满分130 | >= 90 强买；封单强度 S 级 |
+| 2 | **强势回封** | 11因子 / 满分180 | 龙虎榜净买 > 5000万加分 |
+| 3 | **趋势核心** | 趋势池 + 买点判定 | MA20/MA60 双升，持有 3 天+ |
+| 4 | **事件爆发** | 7步循环 + 4级供应链 | 政策发布 → 验证 → 入场 |
+| 5 | **概念龙头** | 5阶段生命周期 | 发酵期买入 + 板块共振 |
+| 6 | **竞价精选** | 黄金公式 | 开盘涨3-5%、竞价量8-12%、挂买比>60% |
+| 7 | **抱团接力** | 5步漏斗 + 8因子 | 缩量至板日50% → 反转 |
+| 8 | **盘前筛选** | 9策略复合 | 综合评分 > 80 进入候选池 |
+| 9 | **微隔夜** | 2级过滤 + 情绪门控 | 情绪 > 50 开仓 / < 30 平仓，目标胜率72% |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SERVER_PORT` | `8080` | Backend HTTP port |
-| `GIN_MODE` | `debug` | Gin mode (`debug` / `release`) |
-
-### Database
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DB_DRIVER` | `mysql` | Database driver (`mysql` / `sqlite`) |
-| `DB_HOST` | `mysql` | MySQL host |
-| `DB_PORT` | `3306` | MySQL port |
-| `DB_USER` | `quantmind` | MySQL username |
-| `DB_PASSWORD` | `quantmind123` | MySQL password |
-| `DB_NAME` | `quantmind` | Database name |
-
-### Message Queue
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RABBITMQ_HOST` | `rabbitmq` | RabbitMQ host |
-| `RABBITMQ_PORT` | `5672` | RabbitMQ port |
-| `RABBITMQ_USER` | `guest` | RabbitMQ username |
-| `RABBITMQ_PASSWORD` | `guest` | RabbitMQ password |
-
-### Authentication
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `JWT_SECRET` | `quantmind-secret-key-2026` | JWT signing secret |
-| `ADMIN_USER` | `admin` | Initial admin username |
-| `ADMIN_PASSWORD` | `Admin@2026!` | Initial admin password |
-
-### AI (Optional)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AI_PROVIDER` | `deepseek` | Default AI provider name |
-| `AI_API_KEY` | _(empty)_ | Default provider API key |
-| `AI_BASE_URL` | `https://api.deepseek.com/v1` | Default provider base URL |
-| `AI_MODEL` | `deepseek-chat` | Default model name |
-
-> Additional AI providers can be added and configured entirely through the web UI after login.
+每个策略卡片在 UI 中均展示完整的评分因子、阈值规则和数据来源文档。
 
 ---
 
-## Brand
+## API 接口文档
 
-| Element | Value |
-|---------|-------|
-| Primary Color | `#513CC8` |
-| Background | `#F8F9FC` |
-| Card | `#FFFFFF` |
-| Border | `#E5E7EB` |
-| Stock Up (Red) | `#EF4444` |
-| Stock Down (Green) | `#22C55E` |
-| Logo | Rounded square `#513CC8` + white Q-lightning icon |
+### 公开接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/login` | 用户登录，返回 JWT Token |
+
+### 需认证接口（Bearer Token）
+
+**用户与看板**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/profile` | 当前用户信息 |
+| GET | `/api/dashboard` | 看板大屏全量数据（支持 `?date=`） |
+| GET | `/api/dashboard/overview` | 看板概览（多源聚合） |
+
+**行情数据**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/market/sentiment` | 市场情绪（支持 `?days=`） |
+| GET | `/api/market/sector-heat` | 板块热力图数据 |
+| GET | `/api/market/limit-up` | 涨停板（支持 `?type=`） |
+| GET | `/api/market/dragon-tiger` | 龙虎榜数据 |
+| GET | `/api/market/board-ladder` | 连板天梯 |
+| GET | `/api/market/quote` | 实时报价（`?code=&source=`） |
+| GET | `/api/market/kline` | K 线数据（`?code=&period=`） |
+| GET | `/api/market/sectors` | 板块列表 |
+| POST | `/api/market/fetch` | 触发东方财富数据拉取 |
+
+**AI 智能体**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/agents` | 列出所有智能体 |
+| POST | `/api/agents` | 创建智能体 |
+| PUT | `/api/agents/:id` | 更新智能体 |
+| DELETE | `/api/agents/:id` | 删除智能体 |
+| GET | `/api/skills` | 列出所有技能 |
+| POST | `/api/agents/:id/skills` | 绑定技能 |
+| GET | `/api/conversations` | 对话列表 |
+| POST | `/api/conversations` | 创建对话 |
+| GET | `/api/conversations/:id/messages` | 获取消息 |
+| POST | `/api/conversations/:id/messages` | 发送消息（触发 AI） |
+| DELETE | `/api/conversations/:id` | 删除对话 |
+
+**AI 供应商**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/ai-providers` | 列出所有供应商 |
+| POST | `/api/ai-providers` | 添加供应商 |
+| PUT | `/api/ai-providers/:id` | 更新供应商配置 |
+| POST | `/api/ai-providers/:id/test` | 测试连接 |
+
+**策略**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/strategies` | 策略列表 |
+| GET | `/api/strategy-signals` | 策略信号（`?strategy=&date=`） |
+
+**管理**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/users` | 用户列表 |
+| POST | `/api/users` | 创建用户 |
+| PUT | `/api/users/:id` | 更新用户 |
+| DELETE | `/api/users/:id` | 删除用户 |
+| GET | `/api/audit-logs` | 审计日志（`?page=&module=&username=`） |
 
 ---
 
-## Acknowledgements
+## 配置说明
 
-QuantMind integrates ideas and techniques from leading open-source A-share quantitative projects:
+所有配置通过环境变量完成。复制 `.env.example` 为 `.env` 后编辑：
 
-- **[Qlib](https://github.com/microsoft/qlib)** (Microsoft) — Quantitative research framework
-- **[VeighNa](https://github.com/vnpy/vnpy)** — Most popular domestic open-source quant platform
-- **[AKShare](https://github.com/akfamily/akshare)** — A-share data interface library
-- **[Baostock](http://baostock.com)** — Securities data toolkit
-- **[stock_analysis](https://github.com/jiasanpang/stock_analysis)** — Intelligent analysis agent
+### 服务器
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `SERVER_PORT` | `8080` | 后端 HTTP 端口 |
+| `GIN_MODE` | `debug` | Gin 模式（`debug` / `release`） |
+
+### 数据库
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DB_DRIVER` | `mysql` | 数据库驱动（`mysql` / `sqlite`） |
+| `DB_HOST` | `mysql` | MySQL 主机 |
+| `DB_PORT` | `3306` | MySQL 端口 |
+| `DB_USER` | `quantmind` | MySQL 用户名 |
+| `DB_PASSWORD` | `quantmind123` | MySQL 密码 |
+| `DB_NAME` | `quantmind` | 数据库名 |
+
+### 消息队列
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `RABBITMQ_HOST` | `rabbitmq` | RabbitMQ 主机 |
+| `RABBITMQ_PORT` | `5672` | RabbitMQ 端口 |
+| `RABBITMQ_USER` | `guest` | RabbitMQ 用户名 |
+| `RABBITMQ_PASSWORD` | `guest` | RabbitMQ 密码 |
+
+### 认证
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `JWT_SECRET` | `quantmind-secret-key-2026` | JWT 签名密钥 |
+| `ADMIN_USER` | `admin` | 初始管理员用户名 |
+| `ADMIN_PASSWORD` | `Admin@2026!` | 初始管理员密码 |
+
+### AI 配置（可选）
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `AI_PROVIDER` | `deepseek` | 默认 AI 供应商 |
+| `AI_API_KEY` | _(空)_ | 默认供应商 API Key |
+| `AI_BASE_URL` | `https://api.deepseek.com/v1` | 默认供应商 Base URL |
+| `AI_MODEL` | `deepseek-chat` | 默认模型名称 |
+
+### Tushare 配置
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `TUSHARE_TOKEN` | _(空)_ | Tushare Pro 接口 Token |
+
+> 额外 AI 供应商和 Tushare Token 均可在登录后通过 Web UI 进行配置。
 
 ---
 
-## License
+## 版本记录
+
+### v2.1（2026-04-30）
+
+**重大 Bug 修复：**
+- 修复 Tushare 成交额单位换算错误（千元 ÷ 1e6 → 千元 ÷ 1e9），修正前显示 2740.91 万亿，修正后显示 2.74 万亿
+- 修复看板大屏所有"暂无数据"和零值问题
+- 建立多源数据回退优先级：Tushare → 东方财富 → 数据库缓存 → 历史数据
+- "较前日 放量/缩量"单位统一为亿（计算公式：(今日万亿 - 昨日万亿) × 10000 = 亿）
+
+**游资打板 UI 重构：**
+- 日历组件改为友好型月历网格，支持前后翻页追溯历史
+- 布局改为左右 50/50 等高设计
+- 数据加载后默认选中排名第一的游资及其首只个股
+
+### v2.0
+
+- 新增游资打板完整页面（日历、买卖比例条、汇总卡片）
+- 看板大屏现代日历组件
+- 情绪温度计优化
+
+### v1.x
+
+- 平台基础功能搭建
+- 9 套量化策略
+- 4 个 AI 智能体
+- 实时行情 4 通道接入
+
+---
+
+## 品牌设计
+
+| 元素 | 值 |
+|------|-----|
+| 主色 | `#513CC8` |
+| 背景色 | `#F8F9FC` |
+| 卡片色 | `#FFFFFF` |
+| 边框色 | `#E5E7EB` |
+| 股票涨（红） | `#EF4444` |
+| 股票跌（绿） | `#22C55E` |
+| Logo | 圆角方形 `#513CC8` + 白色 Q 闪电图标 |
+
+---
+
+## 致谢
+
+QuantMind 集成了以下优秀开源 A 股量化项目的思想和技术：
+
+- **[Qlib](https://github.com/microsoft/qlib)**（微软）— 量化研究框架
+- **[VeighNa](https://github.com/vnpy/vnpy)** — 国内最流行的开源量化平台
+- **[AKShare](https://github.com/akfamily/akshare)** — A 股数据接口库
+- **[Baostock](http://baostock.com)** — 证券数据工具包
+- **[Tushare](https://tushare.pro)** — 金融数据接口平台
+- **[stock_analysis](https://github.com/jiasanpang/stock_analysis)** — 智能分析代理
+
+---
+
+## 许可证
 
 [MIT License](LICENSE)
 
 ---
 
 <p align="center">
-  <strong>QuantMind</strong> — Intelligent Quantitative Trading, Data-Driven, AI-Powered Investment Decisions
+  <strong>QuantMind</strong> — 智能量化交易，数据驱动，AI 赋能投资决策
 </p>
