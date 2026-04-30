@@ -16,11 +16,13 @@ import HotListPage from '../pages/HotListPage'
 import StockPickPage from '../pages/StockPickPage'
 import AIStockPickPage from '../pages/AIStockPickPage'
 import BroadcastPage from '../pages/BroadcastPage'
+import HotMoneyBoardPage from '../pages/HotMoneyBoardPage'
 
 const pageMap = {
   'dashboard': DashboardPage,
   'realtime': RealtimePage,
   'broadcast': BroadcastPage,
+  'hotmoney-board': HotMoneyBoardPage,
   'watchlist': WatchlistPage,
   'hot-list': HotListPage,
   'ai-stock-pick': AIStockPickPage,
