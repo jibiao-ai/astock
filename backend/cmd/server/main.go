@@ -105,6 +105,11 @@ func main() {
 		auth.GET("/market/broadcast-finance", h.GetBroadcastFinance)  // 财务播报(利润/资产/现金流/预告/快报/审计/主营/指标)
 		auth.GET("/market/broadcast-search", h.GetBroadcastSearch)    // 股票搜索(快速搜索用)
 
+		// 游资打板专题
+		auth.GET("/market/hotmoney-board", h.GetHotMoneyBoard)        // 游资打板(滚动播报+游资列表)
+		auth.GET("/market/hotmoney-detail", h.GetHotMoneyDetail)      // 游资个股详情(选中个股后)
+		auth.GET("/market/hotmoney-dates", h.GetHotMoneyDates)        // 游资数据可用日期
+
 		// AI Stock Pick (杨永兴隔夜套利法)
 		auth.GET("/market/ai-stock-picks", h.GetAIStockPicks)
 		auth.GET("/market/ai-stock-picks/batches", h.GetAIStockPickBatches)
