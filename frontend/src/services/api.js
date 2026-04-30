@@ -128,6 +128,9 @@ export const getBroadcastMarket = (params) => api.get('/market/broadcast', { par
 export const getBroadcastFinance = (params) => api.get('/market/broadcast-finance', { params })
 export const getBroadcastSearch = (params) => api.get('/market/broadcast-search', { params })
 
+// 看板大屏 - 大盘速览
+export const getDashboardOverview = (params) => api.get('/market/dashboard-overview', { params })
+
 // 游资打板
 export const getHotMoneyBoard = (params) => api.get('/market/hotmoney-board', { params })
 export const getHotMoneyDetail = (params) => api.get('/market/hotmoney-detail', { params })
