@@ -27,6 +27,9 @@ func main() {
 	// Migrate Tushare dashboard models (龙虎榜/涨跌停/连板/竞价/资金流向)
 	handler.AutoMigrateDashboardModels(repository.DB)
 
+	// Migrate Tushare broadcast models (股市播报/财务数据)
+	handler.AutoMigrateBroadcastModels(repository.DB)
+
 	mq.InitRabbitMQ(cfg)
 	defer mq.Close()
 
@@ -96,6 +99,11 @@ func main() {
 		auth.GET("/market/ts-auction", h.GetTsStkAuction)             // 集合竞价
 		auth.GET("/market/ts-moneyflow", h.GetTsMoneyflow)            // 资金流向
 		auth.GET("/market/ts-realtime-stats", h.GetTsRealTimeStats)   // Tushare实时统计
+
+		// 股市播报 & 财务播报
+		auth.GET("/market/broadcast", h.GetBroadcastMarket)           // 股市播报(ST/港通/盘前/公司)
+		auth.GET("/market/broadcast-finance", h.GetBroadcastFinance)  // 财务播报(利润/资产/现金流/预告/快报/审计/主营/指标)
+		auth.GET("/market/broadcast-search", h.GetBroadcastSearch)    // 股票搜索(快速搜索用)
 
 		// AI Stock Pick (杨永兴隔夜套利法)
 		auth.GET("/market/ai-stock-picks", h.GetAIStockPicks)

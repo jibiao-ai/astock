@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [hotMoneyTotal, setHotMoneyTotal] = useState(0)
   const [hotMoneyTotalPages, setHotMoneyTotalPages] = useState(1)
   const [expandedTrader, setExpandedTrader] = useState(null)
+  const [hotMoneySort, setHotMoneySort] = useState('net') // net, buy, sell
 
   // Tushare-backed limit stats
   const [tsLimitData, setTsLimitData] = useState(null)
@@ -52,7 +53,7 @@ export default function DashboardPage() {
 
   const SEAL_PAGE_SIZE = 5
   const BROKEN_PAGE_SIZE = 5
-  const HOT_MONEY_PAGE_SIZE = 5
+  const HOT_MONEY_PAGE_SIZE = 10
   const AUCTION_PAGE_SIZE = 15
   const MONEYFLOW_PAGE_SIZE = 15
 
@@ -122,7 +123,7 @@ export default function DashboardPage() {
         retryFetch(() => getTsRealTimeStats({ trade_date: tsDate })),
         retryFetch(() => getTsLimitStats({ trade_date: tsDate })),
         retryFetch(() => getTsLimitStep({ trade_date: tsDate })),
-        retryFetch(() => getTsDragonTiger({ trade_date: tsDate, page: 1, page_size: 50 })),
+        retryFetch(() => getTsDragonTiger({ trade_date: tsDate, page: 1, page_size: 50, sort: hotMoneySort })),
         retryFetch(() => getTsStkAuction({ trade_date: tsDate, page: 1, page_size: AUCTION_PAGE_SIZE })),
         retryFetch(() => getTsMoneyflow({ trade_date: tsDate, category: 'stock', page: 1, page_size: MONEYFLOW_PAGE_SIZE })),
       ])
@@ -165,7 +166,7 @@ export default function DashboardPage() {
           if (r?.code === 0) setTsStats(r.data)
           break
         case 'dragon':
-          const dr = await retryFetch(() => getTsDragonTiger({ trade_date: tsDate, page: 1, page_size: 50, refresh: 'true' }))
+          const dr = await retryFetch(() => getTsDragonTiger({ trade_date: tsDate, page: 1, page_size: 50, refresh: 'true', sort: hotMoneySort }))
           if (dr?.code === 0) {
             setHotMoneyData(dr.data?.traders || [])
             setHotMoneyDate(dr.data?.trade_date || '')
@@ -241,8 +242,18 @@ export default function DashboardPage() {
   const brokenPaged = brokens.slice((brokenPage - 1) * BROKEN_PAGE_SIZE, brokenPage * BROKEN_PAGE_SIZE)
 
   // Hot money pagination (frontend-side since we already have all traders)
-  const hotMoneyPaged = hotMoneyData.slice((hotMoneyPage - 1) * HOT_MONEY_PAGE_SIZE, hotMoneyPage * HOT_MONEY_PAGE_SIZE)
-  const hotMoneyTotalPagesCalc = Math.max(1, Math.ceil(hotMoneyData.length / HOT_MONEY_PAGE_SIZE))
+  // Apply local sort
+  const hotMoneySorted = [...hotMoneyData].sort((a, b) => {
+    // Known traders always first
+    if (a.is_known !== b.is_known) return a.is_known ? -1 : 1
+    switch (hotMoneySort) {
+      case 'buy': return (b.total_buy || 0) - (a.total_buy || 0)
+      case 'sell': return (b.total_sell || 0) - (a.total_sell || 0)
+      default: return Math.abs(b.total_net || 0) - Math.abs(a.total_net || 0)
+    }
+  })
+  const hotMoneyPaged = hotMoneySorted.slice((hotMoneyPage - 1) * HOT_MONEY_PAGE_SIZE, hotMoneyPage * HOT_MONEY_PAGE_SIZE)
+  const hotMoneyTotalPagesCalc = Math.max(1, Math.ceil(hotMoneySorted.length / HOT_MONEY_PAGE_SIZE))
 
   const getScoreColor = (score) => {
     if (score >= 70) return '#EF4444'
@@ -501,9 +512,12 @@ export default function DashboardPage() {
                   <th className="text-left p-2">股票</th>
                   <th className="text-right p-2">现价</th>
                   <th className="text-right p-2">涨跌幅</th>
-                  <th className="text-right p-2">连板</th>
+                  <th className="text-left p-2">涨停标签</th>
+                  <th className="text-center p-2">涨停状态</th>
+                  <th className="text-right p-2">换手率%</th>
+                  <th className="text-right p-2">涨速</th>
+                  <th className="text-right p-2">成交额</th>
                   <th className="text-right p-2">封单额</th>
-                  <th className="text-left p-2">行业</th>
                 </tr>
               </thead>
               <tbody>
@@ -519,21 +533,45 @@ export default function DashboardPage() {
                     <td className={`p-2 text-right font-medium ${(s.pct_chg || 0) >= 0 ? 'stock-up' : 'stock-down'}`}>
                       {(s.pct_chg || 0) >= 0 ? '+' : ''}{s.pct_chg?.toFixed(2)}%
                     </td>
-                    <td className="p-2 text-right">
-                      {s.limit_times > 1 && (
+                    <td className="p-2 text-left max-w-[120px]">
+                      {s.tag ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-orange-50 text-orange-600 border border-orange-100 truncate inline-block max-w-full" title={s.tag}>
+                          {s.tag}
+                        </span>
+                      ) : '---'}
+                    </td>
+                    <td className="p-2 text-center">
+                      {s.status ? (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          s.status.includes('连板') ? 'bg-red-50 text-red-500 border border-red-100' :
+                          s.status.includes('一字') ? 'bg-purple-50 text-purple-500 border border-purple-100' :
+                          s.status.includes('换手') ? 'bg-blue-50 text-blue-500 border border-blue-100' :
+                          'bg-gray-50 text-gray-500 border border-gray-100'
+                        }`}>
+                          {s.status}
+                        </span>
+                      ) : s.limit_times > 1 ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-500 border border-red-100">
                           {s.limit_times}连板
                         </span>
-                      )}
+                      ) : '---'}
                     </td>
-                    <td className={`p-2 text-right ${(s.fd_amount || 0) >= 0 ? 'stock-up' : 'stock-down'}`}>
-                      {s.fd_amount ? formatAmountWan(s.fd_amount / 10000) : '---'}
+                    <td className="p-2 text-right text-gray-600">
+                      {s.turnover_ratio ? s.turnover_ratio.toFixed(2) + '%' : '---'}
                     </td>
-                    <td className="p-2 text-gray-400 max-w-[80px] truncate">{s.industry || '---'}</td>
+                    <td className={`p-2 text-right font-medium ${(s.rise_rate || 0) >= 0 ? 'stock-up' : 'stock-down'}`}>
+                      {s.rise_rate ? ((s.rise_rate >= 0 ? '+' : '') + s.rise_rate.toFixed(2) + '%') : '---'}
+                    </td>
+                    <td className="p-2 text-right text-gray-600">
+                      {s.turnover ? formatAmount(s.turnover) : '---'}
+                    </td>
+                    <td className={`p-2 text-right ${(s.fd_amount || s.limit_order || 0) >= 0 ? 'stock-up' : 'stock-down'}`}>
+                      {(s.limit_order || s.fd_amount) ? formatAmount(s.limit_order || s.fd_amount) : '---'}
+                    </td>
                   </tr>
                 ))}
                 {currentLimitStocks.length === 0 && (
-                  <tr><td colSpan={6} className="text-center p-4 text-gray-400">暂无当日涨跌停数据</td></tr>
+                  <tr><td colSpan={9} className="text-center p-4 text-gray-400">暂无当日涨跌停数据</td></tr>
                 )}
               </tbody>
             </table>
@@ -758,6 +796,15 @@ export default function DashboardPage() {
               <span className="text-[10px] text-gray-400 font-normal ml-1">(Tushare·按游资名称分类)</span>
             </h3>
             <div className="flex items-center gap-2">
+              {/* Sort buttons */}
+              <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
+                {[{ key: 'net', label: '净额' }, { key: 'buy', label: '买入' }, { key: 'sell', label: '卖出' }].map(s => (
+                  <button key={s.key}
+                    className={`px-2 py-0.5 text-[10px] rounded-md transition ${hotMoneySort === s.key ? 'bg-white text-orange-600 shadow-sm font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => { setHotMoneySort(s.key); setHotMoneyPage(1); setExpandedTrader(null) }}
+                  >{s.label}</button>
+                ))}
+              </div>
               {hotMoneyDate && (
                 <span className="text-[10px] text-gray-400 bg-gray-50 px-2 py-0.5 rounded border border-gray-100">{hotMoneyDate}</span>
               )}
@@ -774,10 +821,11 @@ export default function DashboardPage() {
                       onClick={() => setExpandedTrader(expandedTrader === i ? null : i)}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center text-[10px] font-bold border border-orange-100">
+                        <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold border ${trader.is_known ? 'bg-orange-50 text-orange-500 border-orange-100' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
                           {(hotMoneyPage - 1) * HOT_MONEY_PAGE_SIZE + i + 1}
                         </span>
-                        <span className="text-sm font-semibold text-gray-800 truncate max-w-[200px]">{trader.trader_name}</span>
+                        <span className={`text-sm font-semibold truncate max-w-[200px] ${trader.is_known ? 'text-gray-800' : 'text-gray-500'}`}>{trader.trader_name}</span>
+                        {trader.is_known && <span className="text-[9px] text-orange-500 bg-orange-50 px-1 py-0 rounded border border-orange-100">知名</span>}
                         <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{trader.trade_count}笔</span>
                       </div>
                       <div className="flex items-center gap-3 text-xs">
@@ -837,8 +885,8 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-          {hotMoneyData.length > HOT_MONEY_PAGE_SIZE && (
-            <PaginationBar page={hotMoneyPage} totalPages={hotMoneyTotalPagesCalc} total={hotMoneyData.length} label="家游资"
+          {hotMoneySorted.length > HOT_MONEY_PAGE_SIZE && (
+            <PaginationBar page={hotMoneyPage} totalPages={hotMoneyTotalPagesCalc} total={hotMoneySorted.length} label="家游资"
               onPageChange={(p) => { setHotMoneyPage(p); setExpandedTrader(null) }} />
           )}
         </div>

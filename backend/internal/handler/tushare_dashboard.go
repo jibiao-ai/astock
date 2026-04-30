@@ -56,7 +56,7 @@ type TsDragonTigerInst struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// TsLimitList stores 涨跌停和炸板 (limit_list_d)
+// TsLimitList stores 涨跌停和炸板 (limit_list_d / limit_list_ths)
 type TsLimitList struct {
 	ID            uint      `gorm:"primaryKey" json:"id"`
 	TradeDate     string    `gorm:"size:10;index:idx_ts_ll_date" json:"trade_date"`
@@ -77,6 +77,15 @@ type TsLimitList struct {
 	UpStat        string    `gorm:"size:20" json:"up_stat"`
 	LimitTimes    int       `json:"limit_times"`
 	Limit         string    `gorm:"size:5;index:idx_ts_ll_limit" json:"limit"` // U/D/Z
+	// New fields from limit_list_ths (同花顺涨跌停榜单)
+	Tag           string    `gorm:"size:200" json:"tag"`            // 涨停标签（概念/题材）
+	Status        string    `gorm:"size:50" json:"status"`          // 涨停状态（N连板、一字板、换手板、T字板）
+	LuDesc        string    `gorm:"size:500" json:"lu_desc"`        // 涨停原因
+	LimitType     string    `gorm:"size:20" json:"limit_type"`      // 板单类别（涨停池、跌停池、炸板池、连扳池）
+	LimitOrder    float64   `json:"limit_order"`                    // 封单量(元)
+	Turnover      float64   `json:"turnover"`                       // 成交额(元)
+	RiseRate      float64   `json:"rise_rate"`                      // 涨速(%)
+	DataSource    string    `gorm:"size:10" json:"data_source"`     // 数据来源: ths/tushare
 	CreatedAt     time.Time `json:"created_at"`
 }
 
@@ -205,7 +214,7 @@ func ensureHotMoneyList() {
 		return
 	}
 
-	// Build seat->name mapping
+	// Build seat->name mapping with multiple key strategies for better matching
 	seatMap := make(map[string]string)
 	for _, item := range dbItems {
 		if item.Orgs == "" || item.Orgs == "[]" {
@@ -218,12 +227,24 @@ func ensureHotMoneyList() {
 			if org == "" {
 				continue
 			}
-			// Store full org name as key
+			// Store full org name as key (exact match)
 			seatMap[org] = item.Name
+
 			// Also extract short key (remove common suffixes for fuzzy matching)
 			shortKey := extractSeatShortKey(org)
 			if shortKey != "" && shortKey != org {
 				seatMap[shortKey] = item.Name
+			}
+
+			// Also extract location-based key for cross-broker matching
+			locKey := extractSeatLocationKey(org)
+			if locKey != "" && len([]rune(locKey)) >= 4 {
+				// Only store location key if it's specific enough
+				// Use format "broker+location" as secondary key
+				broker := extractBrokerName(org)
+				if broker != "" {
+					seatMap[broker+locKey] = item.Name
+				}
 			}
 		}
 	}
@@ -250,8 +271,13 @@ func ensureHotMoneyList() {
 // extractSeatShortKey extracts a shorter matchable key from a full seat name
 // e.g. "华泰证券股份有限公司上海武定路证券营业部" -> "华泰证券上海武定路"
 func extractSeatShortKey(org string) string {
-	// Remove common suffixes
-	suffixes := []string{"证券营业部", "营业部", "证券有限责任公司", "股份有限公司", "有限责任公司", "有限公司"}
+	// Remove common suffixes in order (longer first)
+	suffixes := []string{
+		"证券营业部", "营业部", "分公司",
+		"证券有限责任公司", "股份有限公司",
+		"有限责任公司", "有限公司",
+		"第一证券", "第二证券",
+	}
 	result := org
 	for _, suffix := range suffixes {
 		result = strings.ReplaceAll(result, suffix, "")
@@ -261,6 +287,47 @@ func extractSeatShortKey(org string) string {
 		return ""
 	}
 	return result
+}
+
+// extractSeatLocationKey extracts just the securities company + location from a seat name
+// e.g. "华泰证券股份有限公司上海武定路证券营业部" -> "上海武定路"
+// This helps match when the broker name changes but the location stays the same
+func extractSeatLocationKey(org string) string {
+	// Remove company name prefix patterns
+	prefixes := []string{
+		"股份有限公司", "有限责任公司", "有限公司",
+		"证券", "证券股份",
+	}
+	// First, extract the part after the company name
+	result := org
+	for _, prefix := range prefixes {
+		idx := strings.Index(result, prefix)
+		if idx > 0 {
+			result = result[idx+len(prefix):]
+			break
+		}
+	}
+	// Remove trailing suffixes
+	trailingSuffixes := []string{"证券营业部", "营业部", "分公司"}
+	for _, s := range trailingSuffixes {
+		result = strings.TrimSuffix(result, s)
+	}
+	result = strings.TrimSpace(result)
+	if result == "" || result == org || len([]rune(result)) < 3 {
+		return ""
+	}
+	return result
+}
+
+// extractBrokerName extracts the securities company short name from a full seat name
+// e.g. "华泰证券股份有限公司上海武定路证券营业部" -> "华泰"
+func extractBrokerName(org string) string {
+	// Find "证券" and take what's before it (the broker brand)
+	idx := strings.Index(org, "证券")
+	if idx > 0 && idx <= 12 { // broker names are typically 2-4 Chinese chars
+		return org[:idx]
+	}
+	return ""
 }
 
 // parseOrgsField parses the orgs field which can be in JSON array format or comma/、separated
@@ -307,6 +374,7 @@ func parseOrgsField(orgsStr string) []string {
 }
 
 // matchHotMoneyTraderName finds the trader name for a given seat/exalter name
+// Uses multi-level matching: exact > short key > location key > fuzzy contains
 func matchHotMoneyTraderName(exalter string) string {
 	hotMoneyMu.RLock()
 	seatMap := hotMoneySeatMap
@@ -314,6 +382,17 @@ func matchHotMoneyTraderName(exalter string) string {
 
 	if seatMap == nil || exalter == "" {
 		return ""
+	}
+
+	// Special cases - direct keyword match for well-known seats
+	if exalter == "机构专用" || strings.HasPrefix(exalter, "机构专用") {
+		return "机构"
+	}
+	if exalter == "沪股通专用" {
+		return "沪股通"
+	}
+	if exalter == "深股通专用" {
+		return "深股通"
 	}
 
 	// 1. Exact match first (highest priority)
@@ -329,14 +408,42 @@ func matchHotMoneyTraderName(exalter string) string {
 		}
 	}
 
-	// 3. Try matching: if the exalter's short key contains a known seat key
-	// Only for keys that are specific enough (>= 10 chars to avoid false positives)
-	if shortKey != "" {
+	// 3. Try location-based key match
+	locKey := extractSeatLocationKey(exalter)
+	if locKey != "" {
+		// Check if any known key contains this location
 		for key, name := range seatMap {
 			keyLen := len([]rune(key))
-			if keyLen >= 5 && keyLen <= 20 {
-				// Check if the short key matches a known abbreviated key
+			if keyLen >= 4 && keyLen <= 30 {
+				if strings.Contains(key, locKey) || strings.Contains(locKey, key) {
+					return name
+				}
+			}
+		}
+	}
+
+	// 4. Fuzzy matching - try partial contains between shortKey and known keys
+	if shortKey != "" {
+		shortKeyRunes := len([]rune(shortKey))
+		for key, name := range seatMap {
+			keyLen := len([]rune(key))
+			if keyLen >= 4 && keyLen <= 25 && shortKeyRunes >= 4 {
 				if strings.Contains(shortKey, key) || strings.Contains(key, shortKey) {
+					return name
+				}
+			}
+		}
+	}
+
+	// 5. Last resort: try to match any distinctive substring (city + road patterns)
+	// e.g., if exalter contains "益田路" and a known key also contains "益田路"
+	for key, name := range seatMap {
+		keyLen := len([]rune(key))
+		if keyLen >= 6 && keyLen <= 20 {
+			// Extract the location part from the known key
+			keyLoc := extractSeatLocationKey(key)
+			if keyLoc != "" && len([]rune(keyLoc)) >= 4 {
+				if strings.Contains(exalter, keyLoc) {
 					return name
 				}
 			}
@@ -551,7 +658,8 @@ func findLatestLimitListDate() string {
 	return ""
 }
 
-// ensureLimitListData guarantees limit_list_d data is available for a trade date.
+// ensureLimitListData guarantees limit_list data is available for a trade date.
+// Priority: limit_list_ths (同花顺, richer fields, higher rate limit) > limit_list_d (Tushare classic)
 // Returns the effective trade_date (may differ if data was found on a different date).
 func ensureLimitListData(tradeDate string, refresh bool) string {
 	var count int64
@@ -561,14 +669,18 @@ func ensureLimitListData(tradeDate string, refresh bool) string {
 		return tradeDate // Already have data for this date
 	}
 
-	// Skip API calls if known to be rate-limited
+	// Priority 1: Try limit_list_ths (同花顺) - higher rate limit (500/min), richer data
+	if fetchAndSaveLimitListThs(tradeDate) {
+		return tradeDate
+	}
+
+	// Priority 2: Fall back to limit_list_d (classic Tushare) if THS failed
 	if !isLimitListRateLimited() {
-		// Try to fetch from Tushare
 		if fetchAndSaveLimitList(tradeDate) {
 			return tradeDate
 		}
 	} else {
-		log.Printf("[LimitList] Skipping API call (rate-limited), checking DB cache...")
+		log.Printf("[LimitList] Skipping limit_list_d API call (rate-limited), checking DB cache...")
 	}
 
 	// API failed (likely rate-limited) - fall back to DB data
@@ -582,23 +694,25 @@ func ensureLimitListData(tradeDate string, refresh bool) string {
 		return latestDate
 	}
 
-	// Last resort: try previous trading days (only if not rate-limited)
-	if !isLimitListRateLimited() {
-		now := time.Now()
-		for i := 1; i <= 3; i++ {
-			d := now.AddDate(0, 0, -i)
-			if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
-				continue
+	// Last resort: try previous trading days
+	now := time.Now()
+	for i := 1; i <= 3; i++ {
+		d := now.AddDate(0, 0, -i)
+		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+			continue
+		}
+		candidate := d.Format("20060102")
+		if candidate != tradeDate {
+			repository.DB.Model(&TsLimitList{}).Where("trade_date = ?", candidate).Count(&count)
+			if count > 0 {
+				return candidate
 			}
-			candidate := d.Format("20060102")
-			if candidate != tradeDate {
-				repository.DB.Model(&TsLimitList{}).Where("trade_date = ?", candidate).Count(&count)
-				if count > 0 {
-					return candidate
-				}
-				if fetchAndSaveLimitList(candidate) {
-					return candidate
-				}
+			// Try THS first, then classic
+			if fetchAndSaveLimitListThs(candidate) {
+				return candidate
+			}
+			if !isLimitListRateLimited() && fetchAndSaveLimitList(candidate) {
+				return candidate
 			}
 		}
 	}
@@ -612,6 +726,7 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 	refresh := c.DefaultQuery("refresh", "false") == "true"
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	sortBy := c.DefaultQuery("sort", "net") // net, buy, sell
 	if page < 1 {
 		page = 1
 	}
@@ -662,25 +777,19 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 		}
 	}
 
-	var items []TsDragonTiger
+	// Load ALL items for the date (not paginated) to build complete trader aggregation
+	var allItems []TsDragonTiger
 	repository.DB.Where("trade_date = ?", tradeDate).
 		Order("net_amount DESC").
-		Offset((page - 1) * pageSize).Limit(pageSize).
-		Find(&items)
+		Find(&allItems)
 
-	// Also load inst data for these stocks
-	tsCodes := []string{}
-	for _, item := range items {
-		tsCodes = append(tsCodes, item.TsCode)
-	}
+	// Load ALL inst data for this date
+	var allInsts []TsDragonTigerInst
+	repository.DB.Where("trade_date = ?", tradeDate).Find(&allInsts)
 
 	instMap := map[string][]TsDragonTigerInst{}
-	if len(tsCodes) > 0 {
-		var insts []TsDragonTigerInst
-		repository.DB.Where("trade_date = ? AND ts_code IN ?", tradeDate, tsCodes).Find(&insts)
-		for _, inst := range insts {
-			instMap[inst.TsCode] = append(instMap[inst.TsCode], inst)
-		}
+	for _, inst := range allInsts {
+		instMap[inst.TsCode] = append(instMap[inst.TsCode], inst)
 	}
 
 	// Ensure hot money list is loaded for trader name matching
@@ -688,10 +797,25 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 
 	// Build response with trader-grouped format for frontend compatibility
 	// Group by hot money trader name (游资名称) using hm_list data
-	traderMap := map[string]*gin.H{}
+	type traderInfo struct {
+		Name       string
+		TotalBuy   float64
+		TotalSell  float64
+		TotalNet   float64
+		TradeCount int
+		IsKnown    bool // Whether matched to a known trader name
+		Trades     []gin.H
+	}
+	traderMap := map[string]*traderInfo{}
 	traderOrder := []string{}
 
-	for _, item := range items {
+	// Build a name->stock map for enriching trade info
+	stockNameMap := map[string]string{}
+	for _, item := range allItems {
+		stockNameMap[item.TsCode] = item.Name
+	}
+
+	for _, item := range allItems {
 		code := tsCodeToCode(item.TsCode)
 		insts := instMap[item.TsCode]
 
@@ -703,27 +827,26 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 
 			// Match seat name to known hot money trader name
 			traderName := matchHotMoneyTraderName(seatName)
+			isKnown := traderName != ""
 			if traderName == "" {
-				// If not matched to a known trader, use the seat name directly
-				traderName = seatName
+				// For unmatched seats, try to create a readable short name
+				traderName = simplifyUnmatchedSeat(seatName)
 			}
 
 			if _, ok := traderMap[traderName]; !ok {
-				h := gin.H{
-					"trader_name": traderName,
-					"total_buy":   0.0,
-					"total_sell":  0.0,
-					"total_net":   0.0,
-					"trade_count": 0,
-					"trades":      []gin.H{},
+				traderMap[traderName] = &traderInfo{
+					Name:    traderName,
+					IsKnown: isKnown,
+					Trades:  []gin.H{},
 				}
-				traderMap[traderName] = &h
 				traderOrder = append(traderOrder, traderName)
 			}
 
 			trader := traderMap[traderName]
-			trades := (*trader)["trades"].([]gin.H)
-			trades = append(trades, gin.H{
+			if isKnown && !trader.IsKnown {
+				trader.IsKnown = true // Upgrade if any match is known
+			}
+			trader.Trades = append(trader.Trades, gin.H{
 				"code":     code,
 				"name":     item.Name,
 				"seat":     seatName,
@@ -733,29 +856,61 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 				"reason":   inst.Reason,
 				"side":     inst.Side,
 			})
-			(*trader)["trades"] = trades
-			(*trader)["total_buy"] = (*trader)["total_buy"].(float64) + inst.Buy
-			(*trader)["total_sell"] = (*trader)["total_sell"].(float64) + inst.Sell
-			(*trader)["total_net"] = (*trader)["total_net"].(float64) + inst.NetBuy
-			(*trader)["trade_count"] = (*trader)["trade_count"].(int) + 1
+			trader.TotalBuy += inst.Buy
+			trader.TotalSell += inst.Sell
+			trader.TotalNet += inst.NetBuy
+			trader.TradeCount++
 		}
 	}
 
-	// Sort traders by total net amount descending
+	// Sort traders: known traders first (by sort criteria), then unknown ones
 	sort.Slice(traderOrder, func(i, j int) bool {
-		netI := (*traderMap[traderOrder[i]])["total_net"].(float64)
-		netJ := (*traderMap[traderOrder[j]])["total_net"].(float64)
-		return math.Abs(netI) > math.Abs(netJ)
+		ti := traderMap[traderOrder[i]]
+		tj := traderMap[traderOrder[j]]
+		// Known traders always come first
+		if ti.IsKnown != tj.IsKnown {
+			return ti.IsKnown
+		}
+		// Within same category, sort by the selected criteria
+		switch sortBy {
+		case "buy":
+			return ti.TotalBuy > tj.TotalBuy
+		case "sell":
+			return ti.TotalSell > tj.TotalSell
+		default: // "net"
+			return math.Abs(ti.TotalNet) > math.Abs(tj.TotalNet)
+		}
 	})
 
 	traders := []gin.H{}
 	for _, name := range traderOrder {
-		traders = append(traders, *traderMap[name])
+		t := traderMap[name]
+		traders = append(traders, gin.H{
+			"trader_name": t.Name,
+			"total_buy":   t.TotalBuy,
+			"total_sell":  t.TotalSell,
+			"total_net":   t.TotalNet,
+			"trade_count": t.TradeCount,
+			"is_known":    t.IsKnown,
+			"trades":      t.Trades,
+		})
 	}
 
-	// Also build flat items list
+	// Also build flat items list (paginated)
+	offset := (page - 1) * pageSize
+	end := offset + pageSize
+	if end > len(allItems) {
+		end = len(allItems)
+	}
+	pagedItems := allItems
+	if offset < len(allItems) {
+		pagedItems = allItems[offset:end]
+	} else {
+		pagedItems = nil
+	}
+
 	results := []gin.H{}
-	for _, item := range items {
+	for _, item := range pagedItems {
 		code := tsCodeToCode(item.TsCode)
 		insts := instMap[item.TsCode]
 		instList := []gin.H{}
@@ -778,17 +933,48 @@ func (h *Handler) GetTsDragonTiger(c *gin.Context) {
 	}
 
 	totalTraders := len(traders)
+	// Count known traders
+	knownCount := 0
+	for _, t := range traders {
+		if t["is_known"] == true {
+			knownCount++
+		}
+	}
 
 	response.Success(c, gin.H{
-		"trade_date":  formatTradeDateForDisplay(tradeDate),
-		"items":       results,
-		"traders":     traders,
-		"total":       count,
+		"trade_date":    formatTradeDateForDisplay(tradeDate),
+		"items":         results,
+		"traders":       traders,
+		"total":         count,
 		"total_traders": totalTraders,
-		"page":        page,
-		"page_size":   pageSize,
-		"total_pages": (int(count) + pageSize - 1) / pageSize,
+		"known_traders": knownCount,
+		"sort":          sortBy,
+		"page":          page,
+		"page_size":     pageSize,
+		"total_pages":   (int(count) + pageSize - 1) / pageSize,
 	})
+}
+
+// simplifyUnmatchedSeat creates a readable short name for an unmatched seat
+// e.g. "华泰证券股份有限公司深圳深南大道基金大厦证券营业部" -> "华泰-深圳深南大道"
+func simplifyUnmatchedSeat(seat string) string {
+	broker := extractBrokerName(seat)
+	loc := extractSeatLocationKey(seat)
+	if broker != "" && loc != "" {
+		return broker + "-" + loc
+	}
+	if broker != "" {
+		short := extractSeatShortKey(seat)
+		if short != "" {
+			return short
+		}
+	}
+	// Truncate long seat names
+	runes := []rune(seat)
+	if len(runes) > 20 {
+		return string(runes[:20]) + "..."
+	}
+	return seat
 }
 
 func fetchAndSaveDragonTiger(tradeDate string) bool {
@@ -920,6 +1106,14 @@ func (h *Handler) GetTsLimitUpList(c *gin.Context) {
 			"first_time": item.FirstTime, "last_time": item.LastTime,
 			"open_times": item.OpenTimes, "up_stat": item.UpStat,
 			"limit_times": item.LimitTimes, "limit": item.Limit,
+			// THS enriched fields
+			"tag":         item.Tag,
+			"status":      item.Status,
+			"lu_desc":     item.LuDesc,
+			"rise_rate":   item.RiseRate,
+			"turnover":    item.Turnover,
+			"limit_order": item.LimitOrder,
+			"data_source": item.DataSource,
 		})
 	}
 
@@ -970,6 +1164,14 @@ func (h *Handler) GetTsLimitStats(c *gin.Context) {
 				"open_times": item.OpenTimes, "up_stat": item.UpStat,
 				"limit_times": item.LimitTimes, "limit": item.Limit,
 				"total_mv": item.TotalMv, "turnover_ratio": item.TurnoverRatio,
+				// THS enriched fields
+				"tag":         item.Tag,
+				"status":      item.Status,
+				"lu_desc":     item.LuDesc,
+				"rise_rate":   item.RiseRate,
+				"turnover":    item.Turnover,
+				"limit_order": item.LimitOrder,
+				"data_source": item.DataSource,
 			})
 		}
 		return list
@@ -984,6 +1186,99 @@ func (h *Handler) GetTsLimitStats(c *gin.Context) {
 		"down_stocks":   toList(downItems),
 		"broken_stocks": toList(brokenItems),
 	})
+}
+
+// fetchAndSaveLimitListThs fetches limit_list_ths (同花顺涨跌停榜单) for all types and saves to DB
+// Returns true if any data was found. THS API has higher rate limit (500 calls/min) and richer fields.
+// Fields: ts_code, trade_date, name, close, pct_chg, tag, status, lu_desc, turnover_rate, rise_rate,
+//         turnover, limit_order, limit_amount, open_times, up_stat, first_time, last_time, limit_times
+func fetchAndSaveLimitListThs(tradeDate string) bool {
+	allItems := make([]TsLimitList, 0, 200)
+
+	// limit_type mapping: 涨停池->U, 跌停池->D, 炸板池->Z
+	thsTypes := []struct {
+		thsType   string
+		limitCode string
+	}{
+		{"涨停池", "U"},
+		{"跌停池", "D"},
+		{"炸板池", "Z"},
+	}
+
+	for i, lt := range thsTypes {
+		// Small delay between calls to avoid burst
+		if i > 0 {
+			time.Sleep(300 * time.Millisecond)
+		}
+
+		resp, err := callTushareAPI("limit_list_ths", map[string]string{
+			"trade_date": tradeDate,
+			"limit_type": lt.thsType,
+		}, "ts_code,trade_date,name,close,pct_chg,tag,status,lu_desc,turnover_rate,rise_rate,turnover,limit_order,limit_amount,open_times,up_stat,first_time,last_time,limit_times")
+		if err != nil {
+			log.Printf("[TsLimitListThs] limit_list_ths(%s) error for %s: %v", lt.thsType, tradeDate, err)
+			if isRateLimitError(err) {
+				log.Printf("[TsLimitListThs] Rate-limited, stopping THS fetch")
+				break
+			}
+			continue
+		}
+
+		rows := tushareDataToMap(resp)
+		for _, row := range rows {
+			item := TsLimitList{
+				TradeDate:     tradeDate,
+				TsCode:        tsString(row, "ts_code"),
+				Name:          tsString(row, "name"),
+				Close:         tsFloat(row, "close"),
+				PctChg:        tsFloat(row, "pct_chg"),
+				Tag:           tsString(row, "tag"),
+				Status:        tsString(row, "status"),
+				LuDesc:        tsString(row, "lu_desc"),
+				TurnoverRatio: tsFloat(row, "turnover_rate"),
+				RiseRate:      tsFloat(row, "rise_rate"),
+				Turnover:      tsFloat(row, "turnover"),
+				LimitOrder:    tsFloat(row, "limit_order"),
+				LimitAmount:   tsFloat(row, "limit_amount"),
+				OpenTimes:     int(tsFloat(row, "open_times")),
+				UpStat:        tsString(row, "up_stat"),
+				FirstTime:     tsString(row, "first_time"),
+				LastTime:      tsString(row, "last_time"),
+				LimitTimes:    int(tsFloat(row, "limit_times")),
+				Limit:         lt.limitCode,
+				LimitType:     lt.thsType,
+				DataSource:    "ths",
+			}
+			allItems = append(allItems, item)
+		}
+		if len(rows) > 0 {
+			log.Printf("[TsLimitListThs] Fetched %d %s records for %s", len(rows), lt.thsType, tradeDate)
+		}
+	}
+
+	if len(allItems) == 0 {
+		log.Printf("[TsLimitListThs] No data fetched for %s", tradeDate)
+		return false
+	}
+
+	// Atomic: delete old + batch insert in a single transaction
+	tx := repository.DB.Begin()
+	if tx.Error != nil {
+		log.Printf("[TsLimitListThs] begin tx error: %v", tx.Error)
+		return false
+	}
+	tx.Where("trade_date = ?", tradeDate).Delete(&TsLimitList{})
+	if err := tx.CreateInBatches(&allItems, 100).Error; err != nil {
+		tx.Rollback()
+		log.Printf("[TsLimitListThs] batch insert error for %s: %v", tradeDate, err)
+		return false
+	}
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("[TsLimitListThs] commit error for %s: %v", tradeDate, err)
+		return false
+	}
+	log.Printf("[TsLimitListThs] Saved total %d records for %s (source: 同花顺)", len(allItems), tradeDate)
+	return true
 }
 
 // fetchAndSaveLimitList fetches limit_list_d for all types (U/D/Z) and saves to DB
@@ -1035,6 +1330,7 @@ func fetchAndSaveLimitList(tradeDate string) bool {
 				UpStat:        tsString(row, "up_stat"),
 				LimitTimes:    int(tsFloat(row, "limit_times")),
 				Limit:         tsString(row, "limit"),
+				DataSource:    "tushare",
 			}
 			if item.Limit == "" {
 				item.Limit = limitType
