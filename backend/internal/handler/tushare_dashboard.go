@@ -2076,9 +2076,10 @@ func (h *Handler) GetTsRealTimeStats(c *gin.Context) {
 
 	// Use Eastmoney for real-time up/down/flat counts (they don't exist in Tushare)
 	upStockCount, downStockCount, flatStockCount = fetchMarketUpDownCounts()
-	totalAmount = fetchMarketTotalAmount()
+	totalAmount = fetchMarketTotalAmount() // returns in 亿
+	totalAmountWanYi := totalAmount / 10000 // 亿 -> 万亿 (for DB storage consistency)
 
-	// Persist to MarketSentiment in background
+	// Persist to MarketSentiment in background (TotalAmount stored in 万亿)
 	go func() {
 		today := formatTradeDateForDisplay(tradeDate)
 		sentiment := model.MarketSentiment{
@@ -2087,7 +2088,7 @@ func (h *Handler) GetTsRealTimeStats(c *gin.Context) {
 			LimitDownCount: int(downCount),
 			BrokenCount:    int(brokenCount),
 			HighestBoard:   highestBoard,
-			TotalAmount:    totalAmount,
+			TotalAmount:    totalAmountWanYi, // stored in 万亿 for consistency
 			UpCount:        upStockCount,
 			DownCount:      downStockCount,
 			FlatCount:      flatStockCount,
@@ -2107,7 +2108,7 @@ func (h *Handler) GetTsRealTimeStats(c *gin.Context) {
 			"limit_down_count": downCount,
 			"broken_count":     brokenCount,
 			"highest_board":    highestBoard,
-			"total_amount":     totalAmount,
+			"total_amount":     totalAmountWanYi, // 万亿 for consistency with dashboard_overview
 			"score":            math.Round(sentimentScore*10) / 10,
 			"up_count":         upStockCount,
 			"down_count":       downStockCount,

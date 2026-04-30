@@ -187,7 +187,7 @@ type MarketSentiment struct {
 	LimitDownCount  int       `json:"limit_down_count"` // 跌停数
 	BrokenCount     int       `json:"broken_count"`     // 炸板数
 	HighestBoard    int       `json:"highest_board"`    // 最高连板
-	TotalAmount     float64   `json:"total_amount"`     // 总成交额(亿)
+	TotalAmount     float64   `json:"total_amount"`     // 总成交额(万亿)
 	UpCount         int       `json:"up_count"`
 	DownCount       int       `json:"down_count"`
 	FlatCount       int       `json:"flat_count"`

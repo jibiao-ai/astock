@@ -1113,7 +1113,8 @@ func (h *Handler) GetRealTimeStats(c *gin.Context) {
 	}
 
 	// Fetch total market turnover from market indices (上证+深证+创业板)
-	totalAmount := fetchMarketTotalAmount()
+	totalAmount := fetchMarketTotalAmount() // returns in 亿
+	totalAmountWanYi := totalAmount / 10000 // 亿 -> 万亿 (for DB/API consistency)
 
 	// Fetch up/down/flat counts from Eastmoney
 	upCount, downCount, flatCount := fetchMarketUpDownCounts()
@@ -1163,7 +1164,7 @@ func (h *Handler) GetRealTimeStats(c *gin.Context) {
 			"limit_down_count": len(limitDownStocks),
 			"broken_count":     brokenCount,
 			"highest_board":    highestBoard,
-			"total_amount":     totalAmount,
+			"total_amount":     totalAmountWanYi, // 万亿 for consistency
 			"score":            math.Round(sentimentScore*10) / 10,
 			"up_count":         upCount,
 			"down_count":       downCount,
@@ -1183,7 +1184,7 @@ func (h *Handler) GetRealTimeStats(c *gin.Context) {
 			LimitDownCount: len(limitDownStocks),
 			BrokenCount:    brokenCount,
 			HighestBoard:   highestBoard,
-			TotalAmount:    totalAmount,
+			TotalAmount:    totalAmountWanYi, // stored in 万亿
 			UpCount:        upCount,
 			DownCount:      downCount,
 			FlatCount:      flatCount,
