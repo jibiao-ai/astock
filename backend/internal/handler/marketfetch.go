@@ -257,7 +257,7 @@ func buildMarketSentiment(date string) {
 		LimitDownCount: int(brokenCount / 2),
 		BrokenCount:    int(brokenCount),
 		HighestBoard:   maxBoard.BoardCount,
-		TotalAmount:    totalAmount * 100, // Convert to 亿-scale
+		TotalAmount:    totalAmount * 100 / 10000, // Convert to 万亿-scale for DB consistency
 		UpCount:        upCount,
 		DownCount:      downCount,
 		FlatCount:      300,
@@ -507,7 +507,7 @@ func SeedDemoMarketData() {
 		if sentimentScore > 95 {
 			sentimentScore = 95
 		}
-		totalAmount := seedVal(9500, 3000)
+		totalAmount := seedVal(9500, 3000) / 10000 // Generate in 万亿 (e.g., ~0.95万亿)
 		upCount := int(seedVal(2200, 800))
 		downCount := int(seedVal(1800, 700))
 

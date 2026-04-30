@@ -564,15 +564,33 @@ export default function DashboardPage() {
             {/* Total Amount - 万亿元 */}
             <div className="mt-2 px-1 flex items-center gap-3">
               <span className="text-xs text-gray-500">成交 <span className="font-bold text-gray-800">{formatWanYi(overviewTotalAmount || tsSentiment.total_amount || 0)}</span></span>
-              {sentimentHistory.length > 1 && (() => {
-                const prev = sentimentHistory[sentimentHistory.length - 2]?.total_amount || 0
-                const curr = overviewTotalAmount || tsSentiment.total_amount || 0
-                const diff = curr - prev
-                return diff !== 0 ? (
-                  <span className={`text-xs ${diff > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                    较前日 {diff > 0 ? '放量' : '缩量'}{diff > 0 ? '+' : ''}{(diff * 10000).toFixed(0)}亿
-                  </span>
-                ) : null
+              {(() => {
+                // Use backend-computed volume_change_yi (unit: 亿) for accuracy
+                const volumeChangeYi = overview?.volume_change_yi
+                if (volumeChangeYi && volumeChangeYi !== 0) {
+                  const diff = volumeChangeYi
+                  return (
+                    <span className={`text-xs ${diff > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                      较前日 {diff > 0 ? '放量' : '缩量'}{diff > 0 ? '+' : ''}{Math.round(diff)}亿
+                    </span>
+                  )
+                }
+                // Fallback: compute from sentimentHistory
+                if (sentimentHistory.length > 1) {
+                  const prev = sentimentHistory[sentimentHistory.length - 2]?.total_amount || 0
+                  const curr = overviewTotalAmount || tsSentiment.total_amount || 0
+                  if (prev > 0 && curr > 0) {
+                    const diff = (curr - prev) * 10000 // 万亿 -> 亿
+                    if (Math.abs(diff) > 1) {
+                      return (
+                        <span className={`text-xs ${diff > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                          较前日 {diff > 0 ? '放量' : '缩量'}{diff > 0 ? '+' : ''}{Math.round(diff)}亿
+                        </span>
+                      )
+                    }
+                  }
+                }
+                return null
               })()}
             </div>
           </div>
