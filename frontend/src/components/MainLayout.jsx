@@ -15,10 +15,12 @@ import WatchlistPage from '../pages/WatchlistPage'
 import HotListPage from '../pages/HotListPage'
 import StockPickPage from '../pages/StockPickPage'
 import AIStockPickPage from '../pages/AIStockPickPage'
+import BroadcastPage from '../pages/BroadcastPage'
 
 const pageMap = {
   'dashboard': DashboardPage,
   'realtime': RealtimePage,
+  'broadcast': BroadcastPage,
   'watchlist': WatchlistPage,
   'hot-list': HotListPage,
   'ai-stock-pick': AIStockPickPage,

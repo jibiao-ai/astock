@@ -123,4 +123,9 @@ export const getAIStockPickStats = () => api.get('/market/ai-stock-picks/stats')
 export const getSystemSettings = () => api.get('/settings')
 export const updateSystemSettings = (data) => api.put('/settings', data)
 
+// 股市播报 & 财务播报
+export const getBroadcastMarket = (params) => api.get('/market/broadcast', { params })
+export const getBroadcastFinance = (params) => api.get('/market/broadcast-finance', { params })
+export const getBroadcastSearch = (params) => api.get('/market/broadcast-search', { params })
+
 export default api
