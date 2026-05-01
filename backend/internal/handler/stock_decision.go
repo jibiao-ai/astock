@@ -937,6 +937,77 @@ func getDecisionAIConfig() (baseURL, apiKey, modelName string) {
 	return
 }
 
+// callLLMForReview calls the LLM with a plain-text system prompt for market review
+// This avoids the JSON-output system prompt used in callLLMAPI
+func callLLMForReview(baseURL, apiKey, model, prompt string) string {
+	if baseURL == "" || apiKey == "" {
+		return ""
+	}
+
+	endpoint := strings.TrimRight(baseURL, "/")
+	if !strings.HasSuffix(endpoint, "/chat/completions") {
+		if !strings.HasSuffix(endpoint, "/v1") {
+			endpoint += "/v1"
+		}
+		endpoint += "/chat/completions"
+	}
+
+	reqBody := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "system", "content": "你是专业A股分析师，请用简洁的纯文本回答，不要使用JSON格式或markdown格式。"},
+			{"role": "user", "content": prompt},
+		},
+		"temperature": 0.3,
+		"max_tokens":  1000,
+	}
+
+	if strings.Contains(strings.ToLower(model), "deepseek") {
+		reqBody["temperature"] = 0
+		delete(reqBody, "max_tokens")
+		reqBody["max_completion_tokens"] = 1000
+	}
+
+	jsonBody, _ := json.Marshal(reqBody)
+	req, _ := http.NewRequest("POST", endpoint, strings.NewReader(string(jsonBody)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[Decision] Review AI API error: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		log.Printf("[Decision] Review AI API status %d: %s", resp.StatusCode, string(body[:min(200, len(body))]))
+		return ""
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return ""
+	}
+	if len(result.Choices) > 0 {
+		content := result.Choices[0].Message.Content
+		if content == "" && result.Choices[0].Message.ReasoningContent != "" {
+			content = result.Choices[0].Message.ReasoningContent
+		}
+		return content
+	}
+	return ""
+}
+
 func callLLMAPI(baseURL, apiKey, model, prompt string) string {
 	if baseURL == "" || apiKey == "" {
 		return ""
@@ -1130,30 +1201,56 @@ func generateMarketReview() MarketReview {
 - 创业板指: %.2f (%.2f%%)
 - 上涨: %d家, 下跌: %d家
 - 涨停: %d只, 最高板: %d连板
-请给出操作建议(加仓/减仓/观望)和市场趋势(多头/空头/震荡)`,
+请以纯文本形式给出复盘总结，不要使用JSON格式。在最后一行单独标注"操作建议：加仓/减仓/观望"和"市场趋势：多头/空头/震荡"`,
 			review.IndexSH, review.IndexSHPct,
 			review.IndexSZ, review.IndexSZPct,
 			review.IndexCYB, review.IndexCYBPct,
 			review.UpCount, review.DownCount,
 			review.LimitUp, review.HighestBoard)
 
-		aiResult := callLLMAPI(aiBaseURL, aiKey, aiModel, prompt)
+		aiResult := callLLMForReview(aiBaseURL, aiKey, aiModel, prompt)
 		if aiResult != "" {
-			review.Summary = aiResult
-			// Try to extract suggestion and trend
-			if strings.Contains(aiResult, "加仓") {
-				review.Suggestion = "加仓"
-			} else if strings.Contains(aiResult, "减仓") {
-				review.Suggestion = "减仓"
+			// Check if AI returned JSON format (e.g. {"summary":"...", "operation":"观望"})
+			// If so, extract the summary text
+			cleaned := strings.TrimSpace(aiResult)
+			if strings.HasPrefix(cleaned, "{") {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(cleaned), &parsed); err == nil {
+					if s, ok := parsed["summary"].(string); ok && s != "" {
+						review.Summary = s
+					}
+					if op, ok := parsed["operation"].(string); ok && op != "" {
+						review.Suggestion = op
+					}
+					if tr, ok := parsed["trend"].(string); ok && tr != "" {
+						review.MarketTrend = tr
+					}
+				} else {
+					// Not valid JSON, use as-is
+					review.Summary = cleaned
+				}
 			} else {
-				review.Suggestion = "观望"
+				review.Summary = cleaned
 			}
-			if strings.Contains(aiResult, "多头") {
-				review.MarketTrend = "多头"
-			} else if strings.Contains(aiResult, "空头") {
-				review.MarketTrend = "空头"
-			} else {
-				review.MarketTrend = "震荡"
+
+			// Extract suggestion and trend from text if not already set
+			if review.Suggestion == "" {
+				if strings.Contains(aiResult, "加仓") {
+					review.Suggestion = "加仓"
+				} else if strings.Contains(aiResult, "减仓") {
+					review.Suggestion = "减仓"
+				} else {
+					review.Suggestion = "观望"
+				}
+			}
+			if review.MarketTrend == "" {
+				if strings.Contains(aiResult, "多头") {
+					review.MarketTrend = "多头"
+				} else if strings.Contains(aiResult, "空头") {
+					review.MarketTrend = "空头"
+				} else {
+					review.MarketTrend = "震荡"
+				}
 			}
 		}
 	}
