@@ -78,7 +78,8 @@ function MarketReviewPanel({ review, loading, onRefresh }) {
 
   let hotSectors = []
   try {
-    hotSectors = review.hot_sectors ? JSON.parse(review.hot_sectors) : []
+    const parsed = review.hot_sectors ? JSON.parse(review.hot_sectors) : []
+    hotSectors = Array.isArray(parsed) ? parsed : []
   } catch (e) { /* ignore */ }
 
   return (
