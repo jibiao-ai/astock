@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Search, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, Clock, BarChart3, Brain, Activity, Loader2, ChevronRight, Target, Shield, Zap, ExternalLink, Newspaper } from 'lucide-react'
+import { Search, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, Clock, BarChart3, Brain, Activity, Loader2, ChevronRight, Target, Shield, Zap, ExternalLink, Newspaper, Megaphone } from 'lucide-react'
 import { analyzeStock, getDecisionHistory, getMarketReview, runMarketReview, getStockNews } from '../services/api'
 import toast from 'react-hot-toast'
 
@@ -130,10 +130,32 @@ function MarketReviewPanel({ review, loading, onRefresh }) {
         ))}
       </div>
 
-      {/* AI Summary */}
+      {/* AI Summary - Megaphone card */}
       {review.summary && (
-        <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 mb-3">
-          <p className="text-xs text-gray-600 leading-relaxed">{review.summary}</p>
+        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl p-4 border border-purple-100 mb-3">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-8 h-8 bg-[#513CC8] rounded-lg flex items-center justify-center shadow-sm">
+              <Megaphone size={16} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-[#513CC8] mb-1 uppercase tracking-wider">AI 复盘摘要</p>
+              <p className="text-sm text-gray-700 leading-relaxed">
+                {(() => {
+                  // Clean up summary - remove JSON artifacts if any
+                  let text = review.summary || ''
+                  try {
+                    if (text.trim().startsWith('{')) {
+                      const parsed = JSON.parse(text)
+                      text = parsed.summary || parsed.content || text
+                    }
+                  } catch(e) {}
+                  // Remove any remaining JSON-like patterns
+                  text = text.replace(/[{}"]/g, '').replace(/summary:\s*/i, '').replace(/operation:\s*\S+/i, '').replace(/trend:\s*\S+/i, '').replace(/,\s*$/g, '').trim()
+                  return text
+                })()}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
