@@ -552,9 +552,12 @@ func (h *Handler) GetSystemSettings(c *gin.Context) {
 		settings[cfg.ConfigKey] = cfg.ConfigValue
 	}
 
-	// Mask tushare token for display
+	// Mask sensitive tokens for display
 	if token, ok := settings["tushare_token"]; ok && len(token) > 8 {
 		settings["tushare_token"] = token[:4] + "****" + token[len(token)-4:]
+	}
+	if apiKey, ok := settings["ai_decision_api_key"]; ok && len(apiKey) > 8 {
+		settings["ai_decision_api_key"] = apiKey[:4] + "****" + apiKey[len(apiKey)-4:]
 	}
 
 	response.Success(c, settings)
@@ -568,9 +571,17 @@ func (h *Handler) UpdateSystemSettings(c *gin.Context) {
 		return
 	}
 
+	// Allowed setting keys
+	allowedKeys := map[string]bool{
+		"tushare_token":        true,
+		"data_source":          true,
+		"ai_decision_base_url": true,
+		"ai_decision_api_key":  true,
+		"ai_decision_model":    true,
+	}
+
 	for key, value := range req {
-		// Only allow known setting keys
-		if key != "tushare_token" && key != "data_source" {
+		if !allowedKeys[key] {
 			continue
 		}
 
@@ -611,6 +622,12 @@ func getSettingDescription(key string) string {
 		return "Tushare Pro API Token (用于获取股票行情数据)"
 	case "data_source":
 		return "数据源选择 (tushare/eastmoney)"
+	case "ai_decision_base_url":
+		return "AI买卖决策模型 Base URL"
+	case "ai_decision_api_key":
+		return "AI买卖决策模型 API Key"
+	case "ai_decision_model":
+		return "AI买卖决策模型名称"
 	default:
 		return key
 	}
