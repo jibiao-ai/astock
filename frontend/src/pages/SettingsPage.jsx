@@ -8,7 +8,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   // Tushare
   const [tushareToken, setTushareToken] = useState('')
+  const [tushareTokenSaved, setTushareTokenSaved] = useState('') // tracks the saved/masked value from server
   const [showToken, setShowToken] = useState(false)
+  const [showAIKey, setShowAIKey] = useState(false)
   const [tokenEdited, setTokenEdited] = useState(false)
   const [saving, setSaving] = useState(false)
   // AI Models
@@ -19,6 +21,7 @@ export default function SettingsPage() {
   const [pushSaving, setPushSaving] = useState(false)
   // Decision AI config
   const [decisionConfig, setDecisionConfig] = useState({ base_url: '', api_key: '', model: '' })
+  const [decisionSaved, setDecisionSaved] = useState({ base_url: '', api_key: '', model: '' }) // tracks saved state from server
   const [decisionEdited, setDecisionEdited] = useState(false)
 
   useEffect(() => {
@@ -35,12 +38,18 @@ export default function SettingsPage() {
       ])
       if (settingsRes.status === 'fulfilled') {
         const data = settingsRes.value?.data?.data || settingsRes.value?.data || {}
-        setTushareToken(data.tushare_token || '')
-        setDecisionConfig({
+        const tToken = data.tushare_token || ''
+        setTushareToken(tToken)
+        setTushareTokenSaved(tToken)
+        const dConfig = {
           base_url: data.ai_decision_base_url || '',
           api_key: data.ai_decision_api_key || '',
-          model: data.ai_decision_model || 'deepseek-chat'
-        })
+          model: data.ai_decision_model || ''
+        }
+        setDecisionConfig(dConfig)
+        setDecisionSaved(dConfig)
+        setDecisionEdited(false)
+        setTokenEdited(false)
       }
       if (providersRes.status === 'fulfilled') {
         setAiProviders(providersRes.value?.data || [])
@@ -52,12 +61,40 @@ export default function SettingsPage() {
     setLoading(false)
   }
 
+  const loadSettings = async () => {
+    try {
+      const res = await getSystemSettings()
+      const data = res?.data?.data || res?.data || {}
+      const tToken = data.tushare_token || ''
+      setTushareToken(tToken)
+      setTushareTokenSaved(tToken)
+      const dConfig = {
+        base_url: data.ai_decision_base_url || '',
+        api_key: data.ai_decision_api_key || '',
+        model: data.ai_decision_model || ''
+      }
+      setDecisionConfig(dConfig)
+      setDecisionSaved(dConfig)
+      setDecisionEdited(false)
+      setTokenEdited(false)
+    } catch (e) { /* silent */ }
+  }
+
+  const loadPushConfigs = async () => {
+    try {
+      const res = await getPushConfigs()
+      setPushConfigs(res?.data || [])
+    } catch (e) { /* silent */ }
+  }
+
   const handleSaveToken = async () => {
     setSaving(true)
     try {
       await updateSystemSettings({ tushare_token: tushareToken.trim() })
-      toast.success('Tushare Token 已更新')
+      toast.success('Tushare Token 已保存')
       setTokenEdited(false)
+      // Reload to get masked value from server
+      await loadSettings()
     } catch (e) {
       toast.error('保存失败')
     }
@@ -68,12 +105,14 @@ export default function SettingsPage() {
     setAiSaving(true)
     try {
       await updateSystemSettings({
-        ai_decision_base_url: decisionConfig.base_url,
-        ai_decision_api_key: decisionConfig.api_key,
-        ai_decision_model: decisionConfig.model
+        ai_decision_base_url: decisionConfig.base_url.trim(),
+        ai_decision_api_key: decisionConfig.api_key.trim(),
+        ai_decision_model: decisionConfig.model.trim()
       })
       toast.success('AI决策模型配置已保存')
       setDecisionEdited(false)
+      // Reload to get masked value from server
+      await loadSettings()
     } catch (e) {
       toast.error('保存失败')
     }
@@ -85,7 +124,8 @@ export default function SettingsPage() {
     try {
       await updatePushConfig(channel, data)
       toast.success('推送配置已保存')
-      loadAll()
+      // Reload push configs to reflect saved state
+      await loadPushConfigs()
     } catch (e) {
       toast.error('保存失败')
     }
@@ -101,6 +141,10 @@ export default function SettingsPage() {
     }
   }
 
+  // Determine config status
+  const isAIConfigured = !!(decisionSaved.base_url && decisionSaved.api_key)
+  const isTushareConfigured = !!tushareTokenSaved
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -111,9 +155,9 @@ export default function SettingsPage() {
   }
 
   const tabs = [
-    { key: 'ai-model', label: 'AI模型', icon: Brain },
-    { key: 'push', label: '推送通知', icon: Bell },
-    { key: 'data-source', label: '数据源', icon: Database },
+    { key: 'ai-model', label: 'AI模型', icon: Brain, configured: isAIConfigured },
+    { key: 'push', label: '推送通知', icon: Bell, configured: pushConfigs.some(c => c.enabled && c.webhook_url) },
+    { key: 'data-source', label: '数据源', icon: Database, configured: isTushareConfigured },
   ]
 
   return (
@@ -143,6 +187,9 @@ export default function SettingsPage() {
           >
             <tab.icon size={16} />
             {tab.label}
+            {tab.configured && (
+              <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+            )}
           </button>
         ))}
       </div>
@@ -150,11 +197,40 @@ export default function SettingsPage() {
       {/* AI Model Config */}
       {activeTab === 'ai-model' && (
         <div className="space-y-6">
+          {/* Current Config Summary - shown when configured */}
+          {isAIConfigured && !decisionEdited && (
+            <div className="bg-green-50 rounded-xl border border-green-200 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle size={18} className="text-green-600" />
+                <span className="text-sm font-semibold text-green-800">AI决策模型已配置</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="bg-white rounded-lg p-3 border border-green-100">
+                  <p className="text-xs text-gray-500 mb-1">API Base URL</p>
+                  <p className="text-sm font-mono text-gray-900 truncate">{decisionSaved.base_url}</p>
+                </div>
+                <div className="bg-white rounded-lg p-3 border border-green-100">
+                  <p className="text-xs text-gray-500 mb-1">模型名称</p>
+                  <p className="text-sm font-mono text-gray-900">{decisionSaved.model || 'deepseek-chat'}</p>
+                </div>
+                <div className="bg-white rounded-lg p-3 border border-green-100">
+                  <p className="text-xs text-gray-500 mb-1">API Key</p>
+                  <p className="text-sm font-mono text-gray-900">{decisionSaved.api_key}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* DeepSeek / SiliconFlow Config */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
               <Brain size={18} style={{ color: '#513CC8' }} />
               <h2 className="text-base font-semibold text-gray-900">AI买卖决策模型</h2>
+              {isAIConfigured && !decisionEdited && (
+                <span className="flex items-center gap-1 ml-2 text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
+                  <CheckCircle size={12} /> 已配置
+                </span>
+              )}
               <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
                 DeepSeek / 硅基流动
               </span>
@@ -189,14 +265,14 @@ export default function SettingsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">API Key</label>
                 <div className="relative">
                   <input
-                    type={showToken ? 'text' : 'password'}
+                    type={showAIKey ? 'text' : 'password'}
                     value={decisionConfig.api_key}
                     onChange={e => { setDecisionConfig(p => ({...p, api_key: e.target.value})); setDecisionEdited(true) }}
                     placeholder="sk-..."
                     className="w-full px-4 py-2.5 pr-10 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
-                  <button onClick={() => setShowToken(!showToken)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                    {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                  <button onClick={() => setShowAIKey(!showAIKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    {showAIKey ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
               </div>
@@ -212,9 +288,17 @@ export default function SettingsPage() {
                   {aiSaving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
                   保存配置
                 </button>
-                {!decisionEdited && decisionConfig.api_key && (
+                {decisionEdited && (
+                  <button
+                    onClick={() => { setDecisionConfig(decisionSaved); setDecisionEdited(false) }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    取消
+                  </button>
+                )}
+                {!decisionEdited && isAIConfigured && (
                   <span className="flex items-center gap-1 text-xs text-green-600">
-                    <CheckCircle size={14} /> 已配置
+                    <CheckCircle size={14} /> 配置已生效
                   </span>
                 )}
               </div>
@@ -223,8 +307,8 @@ export default function SettingsPage() {
                 <div className="flex items-start gap-2">
                   <AlertCircle size={14} className="text-blue-500 mt-0.5 shrink-0" />
                   <div className="text-xs text-blue-700 space-y-1">
-                    <p><strong>DeepSeek：</strong>Base URL: <code className="bg-blue-100 px-1 rounded">https://api.deepseek.com</code>，模型: <code className="bg-blue-100 px-1 rounded">deepseek-chat</code></p>
-                    <p><strong>硅基流动：</strong>Base URL: <code className="bg-blue-100 px-1 rounded">https://api.siliconflow.cn</code>，模型: <code className="bg-blue-100 px-1 rounded">deepseek-ai/DeepSeek-V3</code></p>
+                    <p><strong>DeepSeek:</strong>Base URL: <code className="bg-blue-100 px-1 rounded">https://api.deepseek.com</code>, 模型: <code className="bg-blue-100 px-1 rounded">deepseek-chat</code></p>
+                    <p><strong>硅基流动:</strong>Base URL: <code className="bg-blue-100 px-1 rounded">https://api.siliconflow.cn</code>, 模型: <code className="bg-blue-100 px-1 rounded">deepseek-ai/DeepSeek-V3</code></p>
                   </div>
                 </div>
               </div>
@@ -246,7 +330,7 @@ export default function SettingsPage() {
             onSave={handleUpdatePush}
             onTest={handleTestPush}
             placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
-            helpText="在企业微信群 → 群设置 → 群机器人 → 添加机器人 → 获取Webhook地址"
+            helpText="在企业微信群 -> 群设置 -> 群机器人 -> 添加机器人 -> 获取Webhook地址"
           />
 
           {/* Feishu */}
@@ -259,7 +343,7 @@ export default function SettingsPage() {
             onSave={handleUpdatePush}
             onTest={handleTestPush}
             placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
-            helpText="在飞书群 → 设置 → 群机器人 → 自定义机器人 → 获取Webhook地址"
+            helpText="在飞书群 -> 设置 -> 群机器人 -> 自定义机器人 -> 获取Webhook地址"
           />
 
           {/* Email */}
@@ -281,11 +365,30 @@ export default function SettingsPage() {
       {/* Data Source */}
       {activeTab === 'data-source' && (
         <div className="space-y-6">
+          {/* Current Config Summary - shown when configured */}
+          {isTushareConfigured && !tokenEdited && (
+            <div className="bg-green-50 rounded-xl border border-green-200 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle size={18} className="text-green-600" />
+                <span className="text-sm font-semibold text-green-800">Tushare Pro 数据源已配置</span>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-green-100">
+                <p className="text-xs text-gray-500 mb-1">API Token</p>
+                <p className="text-sm font-mono text-gray-900">{tushareTokenSaved}</p>
+              </div>
+            </div>
+          )}
+
           {/* Tushare Token */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
               <Key size={18} style={{ color: '#513CC8' }} />
               <h2 className="text-base font-semibold text-gray-900">Tushare Pro</h2>
+              {isTushareConfigured && !tokenEdited && (
+                <span className="flex items-center gap-1 ml-2 text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
+                  <CheckCircle size={12} /> 已配置
+                </span>
+              )}
               <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
                 主数据源
               </span>
@@ -320,9 +423,17 @@ export default function SettingsPage() {
                   {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
                   保存 Token
                 </button>
-                {!tokenEdited && tushareToken && (
+                {tokenEdited && (
+                  <button
+                    onClick={() => { setTushareToken(tushareTokenSaved); setTokenEdited(false) }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    取消
+                  </button>
+                )}
+                {!tokenEdited && isTushareConfigured && (
                   <span className="flex items-center gap-1 text-xs text-green-600">
-                    <CheckCircle size={14} /> 已配置
+                    <CheckCircle size={14} /> 配置已生效
                   </span>
                 )}
               </div>
@@ -339,7 +450,7 @@ export default function SettingsPage() {
               {[
                 { name: 'Tushare Pro', badge: '主数据源', badgeColor: 'bg-purple-50 text-purple-600 border-purple-200', desc: '日K/周K/涨跌停/龙虎榜/资金流向/连板', dot: 'bg-purple-500' },
                 { name: '东方财富', badge: '实时数据', badgeColor: 'bg-blue-50 text-blue-600 border-blue-200', desc: '分时图/指数/涨停池/筹码峰', dot: 'bg-blue-500' },
-                { name: 'MySQL缓存', badge: '持久化', badgeColor: 'bg-green-50 text-green-600 border-green-200', desc: '历史数据/情绪/连板天梯/热力概念', dot: 'bg-green-500' },
+                { name: 'SQLite缓存', badge: '持久化', badgeColor: 'bg-green-50 text-green-600 border-green-200', desc: '历史数据/情绪/连板天梯/热力概念', dot: 'bg-green-500' },
               ].map(ds => (
                 <div key={ds.name} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100">
                   <div className={`w-2 h-2 rounded-full ${ds.dot} shrink-0`} />
@@ -363,10 +474,14 @@ function PushConfigCard({ title, icon, description, channel, config, onSave, onT
   const [extra, setExtra] = useState(config.extra || '')
   const [edited, setEdited] = useState(false)
 
+  // Track whether this channel is configured (has webhook URL saved on server)
+  const isConfigured = !!(config.webhook_url)
+
   useEffect(() => {
     setEnabled(config.enabled || false)
     setWebhookURL(config.webhook_url || '')
     setExtra(config.extra || '')
+    setEdited(false)
   }, [config])
 
   const handleSave = () => {
@@ -379,7 +494,19 @@ function PushConfigCard({ title, icon, description, channel, config, onSave, onT
       <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
         {icon}
         <div className="flex-1">
-          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+            {isConfigured && !edited && (
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">
+                <CheckCircle size={10} /> 已配置
+              </span>
+            )}
+            {config.enabled && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                已启用
+              </span>
+            )}
+          </div>
           <p className="text-xs text-gray-500">{description}</p>
         </div>
         <label className="relative inline-flex items-center cursor-pointer">
@@ -392,6 +519,18 @@ function PushConfigCard({ title, icon, description, channel, config, onSave, onT
           <div className="w-10 h-5 bg-gray-200 rounded-full peer peer-checked:bg-purple-600 transition after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
         </label>
       </div>
+
+      {/* Show saved config summary when not editing */}
+      {isConfigured && !edited && (
+        <div className="px-6 py-3 bg-green-50 border-b border-green-100">
+          <div className="flex items-center gap-2 text-xs text-green-700">
+            <CheckCircle size={14} className="text-green-600 shrink-0" />
+            <span className="font-medium">当前配置:</span>
+            <span className="font-mono truncate">{config.webhook_url}</span>
+          </div>
+        </div>
+      )}
+
       <div className="p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -430,13 +569,26 @@ function PushConfigCard({ title, icon, description, channel, config, onSave, onT
           >
             <Save size={14} /> 保存
           </button>
+          {edited && (
+            <button
+              onClick={() => { setWebhookURL(config.webhook_url || ''); setExtra(config.extra || ''); setEnabled(config.enabled || false); setEdited(false) }}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+            >
+              取消
+            </button>
+          )}
           <button
             onClick={() => onTest(channel)}
-            disabled={!webhookURL}
+            disabled={!webhookURL || !isConfigured}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             <Send size={14} /> 发送测试
           </button>
+          {!edited && isConfigured && (
+            <span className="flex items-center gap-1 text-xs text-green-600 ml-auto">
+              <CheckCircle size={14} /> 配置已生效
+            </span>
+          )}
         </div>
       </div>
     </div>

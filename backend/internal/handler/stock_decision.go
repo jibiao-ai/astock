@@ -276,6 +276,8 @@ func (h *Handler) UpdatePushConfig(c *gin.Context) {
 		"extra":       body.Extra,
 	})
 
+	// Reload to return fresh data
+	repository.DB.Where("channel = ?", channel).First(&config)
 	response.Success(c, config)
 }
 
