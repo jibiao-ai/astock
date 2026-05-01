@@ -3,8 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,8 +85,15 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 		upLimitCount, downLimitCount, brokenCount = fetchLimitCountsRobust(tradeDate, refresh)
 	}
 
-	// 5. Board ladder (连板天梯) - Eastmoney only (no Tushare permission)
+	// 5. Board ladder (连板天梯) - Eastmoney first, then AkShare fallback
 	ladderData := fetchBoardLadderRobust(tradeDate, refresh)
+	// AkShare fallback for board ladder
+	if len(ladderData) == 0 {
+		ladderData = fetchAkShareBoardLadder(tradeDate)
+		if len(ladderData) > 0 {
+			log.Printf("[Ladder] Got %d levels from AkShare fallback", len(ladderData))
+		}
+	}
 
 	// 6. Get highest board from ladder data
 	highestBoard := 0
@@ -98,6 +107,14 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 		if err := repository.DB.Where("trade_date = ? AND `limit` = 'U'", tradeDate).
 			Order("limit_times DESC").First(&maxItem).Error; err == nil && maxItem.LimitTimes > 0 {
 			highestBoard = maxItem.LimitTimes
+		}
+	}
+	// AkShare fallback for highest board
+	if highestBoard == 0 {
+		_, _, _, akHighest, _, _ := fetchAkShareMarketStats(tradeDate)
+		if akHighest > 0 {
+			highestBoard = akHighest
+			log.Printf("[HighestBoard] Got %d from AkShare fallback", highestBoard)
 		}
 	}
 
@@ -115,9 +132,25 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 	sentimentScore := computeSentimentScore(upCount, downCount, flatCount, int(upLimitCount), int(downLimitCount), int(brokenCount), highestBoard, totalAmountWanYi)
 
 	// 9. Seal ratio and broken rate
+	// AkShare fallback if no limit data from primary sources
+	if upLimitCount == 0 && downLimitCount == 0 {
+		akUp, akDown, akBroken, akHighest, _, akSealRatio := fetchAkShareMarketStats(tradeDate)
+		if akUp > 0 || akDown > 0 {
+			upLimitCount = int64(akUp)
+			downLimitCount = int64(akDown)
+			brokenCount = int64(akBroken)
+			if akHighest > highestBoard {
+				highestBoard = akHighest
+			}
+			log.Printf("[LimitCounts] AkShare fallback: up=%d, down=%d, broken=%d, highest=%d, seal=%s",
+				akUp, akDown, akBroken, akHighest, akSealRatio)
+		}
+	}
 	sealRatio := "---"
-	if upLimitCount+brokenCount > 0 {
-		sealRatio = strconv.FormatInt(upLimitCount, 10) + ":" + strconv.FormatInt(brokenCount, 10)
+	if upLimitCount > 0 && downLimitCount > 0 {
+		sealRatio = strconv.FormatInt(upLimitCount, 10) + ":" + strconv.FormatInt(downLimitCount, 10)
+	} else if upLimitCount > 0 {
+		sealRatio = strconv.FormatInt(upLimitCount, 10) + ":0"
 	}
 	brokenRate := 0.0
 	if upLimitCount+brokenCount > 0 {
@@ -127,13 +160,27 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 	// 10. Sentiment history
 	sentimentHistory := fetchSentimentHistory(5)
 
-	// 11. Limit stocks (当日涨跌停个股)
+	// 11. Limit stocks (当日涨跌停个股) - Tushare -> Eastmoney -> AkShare
 	limitStocks := fetchLimitStocksRobust(tradeDate, refresh)
+	// AkShare fallback for limit stocks
+	if !hasLimitStocks(limitStocks) {
+		limitStocks = fetchAkShareLimitStocks(tradeDate)
+		if hasLimitStocks(limitStocks) {
+			log.Printf("[LimitStocks] Got from AkShare fallback")
+		}
+	}
 
-	// 12. Concept heat - use Tushare moneyflow_ind_ths (accessible) first
+	// 12. Concept heat - use Tushare moneyflow_ind_ths first, then Eastmoney, then AkShare
 	conceptHeat := fetchTushareIndustryHeat(tradeDate)
 	if len(conceptHeat) == 0 {
 		conceptHeat = fetchConceptHeatRobust(tradeDate)
+	}
+	// AkShare fallback for concept heat
+	if len(conceptHeat) == 0 {
+		conceptHeat = fetchAkShareConceptHeat(tradeDate)
+		if len(conceptHeat) > 0 {
+			log.Printf("[ConceptHeat] Got %d concepts from AkShare fallback", len(conceptHeat))
+		}
 	}
 
 	// 13. Save to DB for future fallback
@@ -1805,6 +1852,240 @@ func fetchTushareIndustryHeat(tradeDate string) []gin.H {
 	})
 
 	log.Printf("[TushareIndustryHeat] Got %d sectors for %s", len(concepts), tradeDate)
+	return concepts
+}
+
+// ==================== AkShare Fallback Client ====================
+// Calls the AkShare Python microservice (port 9090) for fallback data
+
+const akshareServiceURL = "http://127.0.0.1:9090"
+
+// fetchAkShareJSON calls the AkShare microservice and returns parsed JSON response
+func fetchAkShareJSON(path string) (map[string]interface{}, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(akshareServiceURL + path)
+	if err != nil {
+		return nil, fmt.Errorf("akshare request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("akshare read body: %w", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("akshare unmarshal: %w", err)
+	}
+
+	code, _ := result["code"].(float64)
+	if code != 0 {
+		errMsg, _ := result["error"].(string)
+		return nil, fmt.Errorf("akshare error: %s", errMsg)
+	}
+
+	data, ok := result["data"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("akshare: no data field")
+	}
+	return data, nil
+}
+
+// fetchAkShareMarketStats gets comprehensive market stats from AkShare service
+// Returns: limit_up_count, limit_down_count, broken_count, highest_board, broken_rate, seal_ratio
+func fetchAkShareMarketStats(tradeDate string) (int, int, int, int, float64, string) {
+	data, err := fetchAkShareJSON(fmt.Sprintf("/market_stats?trade_date=%s", tradeDate))
+	if err != nil {
+		log.Printf("[AkShare] market_stats error: %v", err)
+		return 0, 0, 0, 0, 0, "---"
+	}
+
+	limitUp := int(safeFloat(data, "limit_up_count"))
+	limitDown := int(safeFloat(data, "limit_down_count"))
+	broken := int(safeFloat(data, "broken_count"))
+	highestBoard := int(safeFloat(data, "highest_board"))
+	brokenRate := safeFloat(data, "broken_rate")
+	sealRatio := ""
+	if sr, ok := data["seal_ratio"].(string); ok {
+		sealRatio = sr
+	}
+
+	log.Printf("[AkShare] market_stats: limitUp=%d, limitDown=%d, broken=%d, highest=%d, brokenRate=%.1f%%, seal=%s",
+		limitUp, limitDown, broken, highestBoard, brokenRate, sealRatio)
+	return limitUp, limitDown, broken, highestBoard, brokenRate, sealRatio
+}
+
+// fetchAkShareBoardLadder gets board ladder (连板天梯) from AkShare service
+func fetchAkShareBoardLadder(tradeDate string) []gin.H {
+	data, err := fetchAkShareJSON(fmt.Sprintf("/board_ladder?trade_date=%s", tradeDate))
+	if err != nil {
+		log.Printf("[AkShare] board_ladder error: %v", err)
+		return nil
+	}
+
+	ladderArr, ok := data["ladder"].([]interface{})
+	if !ok || len(ladderArr) == 0 {
+		return nil
+	}
+
+	result := make([]gin.H, 0, len(ladderArr))
+	for _, item := range ladderArr {
+		levelMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		level := int(safeFloat(levelMap, "level"))
+		count := int(safeFloat(levelMap, "count"))
+		stocks := []gin.H{}
+		if stocksArr, ok := levelMap["stocks"].([]interface{}); ok {
+			for _, s := range stocksArr {
+				sm, ok := s.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				stocks = append(stocks, gin.H{
+					"code": safeString(sm, "code"),
+					"name": safeString(sm, "name"),
+				})
+			}
+		}
+		result = append(result, gin.H{
+			"level":  level,
+			"count":  count,
+			"stocks": stocks,
+		})
+	}
+	return result
+}
+
+// fetchAkShareLimitStocks gets limit-up/down/broken stocks from AkShare service
+func fetchAkShareLimitStocks(tradeDate string) gin.H {
+	// Fetch limit up
+	upData, err := fetchAkShareJSON(fmt.Sprintf("/limit_up?trade_date=%s", tradeDate))
+	upStocks := []gin.H{}
+	if err == nil {
+		if arr, ok := upData["stocks"].([]interface{}); ok {
+			for _, item := range arr {
+				sm, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				upStocks = append(upStocks, gin.H{
+					"code":           safeString(sm, "code"),
+					"name":           safeString(sm, "name"),
+					"pct_chg":        safeFloat(sm, "pct_chg"),
+					"close":          safeFloat(sm, "close"),
+					"amount":         safeFloat(sm, "amount"),
+					"turnover_ratio": safeFloat(sm, "turnover_ratio"),
+					"limit_times":    int(safeFloat(sm, "limit_times")),
+					"first_time":     safeString(sm, "first_time"),
+					"last_time":      safeString(sm, "last_time"),
+					"open_times":     int(safeFloat(sm, "open_times")),
+					"industry":       safeString(sm, "industry"),
+					"tag":            safeString(sm, "tag"),
+					"status":         safeString(sm, "status"),
+				})
+			}
+		}
+	}
+
+	// Fetch limit down
+	downData, err := fetchAkShareJSON(fmt.Sprintf("/limit_down?trade_date=%s", tradeDate))
+	downStocks := []gin.H{}
+	if err == nil {
+		if arr, ok := downData["stocks"].([]interface{}); ok {
+			for _, item := range arr {
+				sm, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				downStocks = append(downStocks, gin.H{
+					"code":           safeString(sm, "code"),
+					"name":           safeString(sm, "name"),
+					"pct_chg":        safeFloat(sm, "pct_chg"),
+					"close":          safeFloat(sm, "close"),
+					"amount":         safeFloat(sm, "amount"),
+					"turnover_ratio": safeFloat(sm, "turnover_ratio"),
+					"limit_times":    int(safeFloat(sm, "limit_times")),
+					"last_time":      safeString(sm, "last_time"),
+					"open_times":     int(safeFloat(sm, "open_times")),
+					"industry":       safeString(sm, "industry"),
+					"tag":            safeString(sm, "tag"),
+					"status":         safeString(sm, "status"),
+				})
+			}
+		}
+	}
+
+	// Fetch broken board
+	brokenData, err := fetchAkShareJSON(fmt.Sprintf("/broken_board?trade_date=%s", tradeDate))
+	brokenStocks := []gin.H{}
+	if err == nil {
+		if arr, ok := brokenData["stocks"].([]interface{}); ok {
+			for _, item := range arr {
+				sm, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				brokenStocks = append(brokenStocks, gin.H{
+					"code":           safeString(sm, "code"),
+					"name":           safeString(sm, "name"),
+					"pct_chg":        safeFloat(sm, "pct_chg"),
+					"close":          safeFloat(sm, "close"),
+					"amount":         safeFloat(sm, "amount"),
+					"turnover_ratio": safeFloat(sm, "turnover_ratio"),
+					"limit_times":    int(safeFloat(sm, "limit_times")),
+					"first_time":     safeString(sm, "first_time"),
+					"open_times":     int(safeFloat(sm, "open_times")),
+					"industry":       safeString(sm, "industry"),
+					"tag":            "炸板",
+					"status":         "炸板",
+				})
+			}
+		}
+	}
+
+	log.Printf("[AkShare] limit_stocks: up=%d, down=%d, broken=%d", len(upStocks), len(downStocks), len(brokenStocks))
+	return gin.H{
+		"up_stocks":     upStocks,
+		"down_stocks":   downStocks,
+		"broken_stocks": brokenStocks,
+		"limit_up":      len(upStocks),
+		"limit_down":    len(downStocks),
+		"broken":        len(brokenStocks),
+	}
+}
+
+// fetchAkShareConceptHeat gets concept heatmap from AkShare service
+func fetchAkShareConceptHeat(tradeDate string) []gin.H {
+	data, err := fetchAkShareJSON(fmt.Sprintf("/concept_heat?trade_date=%s", tradeDate))
+	if err != nil {
+		log.Printf("[AkShare] concept_heat error: %v", err)
+		return nil
+	}
+
+	conceptsArr, ok := data["concepts"].([]interface{})
+	if !ok || len(conceptsArr) == 0 {
+		return nil
+	}
+
+	concepts := make([]gin.H, 0, len(conceptsArr))
+	for _, item := range conceptsArr {
+		cm, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		concepts = append(concepts, gin.H{
+			"code":       safeString(cm, "code"),
+			"name":       safeString(cm, "name"),
+			"change_pct": safeFloat(cm, "change_pct"),
+			"lead_stock": safeString(cm, "lead_stock"),
+			"volume":     safeFloat(cm, "volume"),
+		})
+	}
+
+	log.Printf("[AkShare] concept_heat: got %d concepts", len(concepts))
 	return concepts
 }
 

@@ -2,9 +2,12 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"quantmind/internal/config"
 	"quantmind/internal/handler"
@@ -39,6 +42,9 @@ func main() {
 
 	// Start AI Stock Pick hourly scheduler
 	handler.StartAIStockPickScheduler()
+
+	// Start AkShare Python microservice as fallback data source
+	go startAkShareService()
 
 	// Gin
 	if cfg.GinMode == "release" {
@@ -231,4 +237,64 @@ func isDir(path string) bool {
 		return false
 	}
 	return info.IsDir()
+}
+
+// startAkShareService starts the AkShare Python microservice in background
+// This provides fallback market data when Tushare APIs fail or are rate-limited
+func startAkShareService() {
+	// Find the akshare_service directory
+	scriptPaths := []string{
+		"../backend/akshare_service/main.py",
+		"./akshare_service/main.py",
+		"backend/akshare_service/main.py",
+	}
+
+	var scriptPath string
+	for _, p := range scriptPaths {
+		if _, err := os.Stat(p); err == nil {
+			scriptPath = p
+			break
+		}
+	}
+
+	if scriptPath == "" {
+		log.Println("[AkShare] Service script not found, skipping AkShare fallback")
+		return
+	}
+
+	// Check if already running by pinging health endpoint
+	client := &http.Client{Timeout: 2 * time.Second}
+	if resp, err := client.Get("http://127.0.0.1:9090/health"); err == nil {
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			log.Println("[AkShare] Service already running on port 9090")
+			return
+		}
+	}
+
+	log.Printf("[AkShare] Starting AkShare microservice from: %s", scriptPath)
+	cmd := exec.Command("python3", scriptPath)
+	cmd.Env = append(os.Environ(), "AKSHARE_PORT=9090")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("[AkShare] Failed to start service: %v", err)
+		return
+	}
+
+	log.Printf("[AkShare] Service started with PID %d", cmd.Process.Pid)
+
+	// Wait for it to be ready (up to 10 seconds)
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if resp, err := client.Get("http://127.0.0.1:9090/health"); err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				log.Println("[AkShare] Service is ready and healthy")
+				return
+			}
+		}
+	}
+	log.Println("[AkShare] WARNING: Service started but health check not passing")
 }

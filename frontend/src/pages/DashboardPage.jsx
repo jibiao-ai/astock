@@ -489,7 +489,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold gradient-text">A股看板大屏</h1>
           <p className="text-xs text-gray-400 mt-1">
-            数据来源：Tushare Pro + 东方财富 · {loading ? '加载中...' : `最后更新 ${new Date().toLocaleTimeString('zh-CN')}`}
+            数据来源：Tushare Pro → AkShare → 东方财富 · {loading ? '加载中...' : `最后更新 ${new Date().toLocaleTimeString('zh-CN')}`}
             {overview?.trade_date && <span className="ml-2 text-[#513CC8]">交易日: {overview.trade_date}</span>}
           </p>
         </div>
