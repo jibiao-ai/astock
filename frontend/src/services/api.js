@@ -136,4 +136,14 @@ export const getHotMoneyBoard = (params) => api.get('/market/hotmoney-board', { 
 export const getHotMoneyDetail = (params) => api.get('/market/hotmoney-detail', { params })
 export const getHotMoneyDates = (params) => api.get('/market/hotmoney-dates', { params })
 
+// AI买卖决策
+export const analyzeStock = (data) => api.post('/decision/analyze', data)
+export const getDecisionHistory = (params) => api.get('/decision/history', { params })
+export const getMarketReview = (params) => api.get('/decision/market-review', { params })
+export const runMarketReview = () => api.post('/decision/market-review')
+export const getPushConfigs = () => api.get('/decision/push-configs')
+export const updatePushConfig = (channel, data) => api.put(`/decision/push-configs/${channel}`, data)
+export const testPushNotification = (channel) => api.post(`/decision/push-test/${channel}`)
+export const getStockNews = (params) => api.get('/decision/news', { params })
+
 export default api

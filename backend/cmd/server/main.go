@@ -26,6 +26,7 @@ func main() {
 
 	// Migrate Tushare dashboard models (龙虎榜/涨跌停/连板/竞价/资金流向)
 	handler.AutoMigrateDashboardModels(repository.DB)
+	handler.AutoMigrateDecisionModels(repository.DB)
 
 	// Migrate Tushare broadcast models (股市播报/财务数据)
 	handler.AutoMigrateBroadcastModels(repository.DB)
@@ -119,6 +120,16 @@ func main() {
 		auth.POST("/market/ai-stock-picks/run", h.RunAIStockPick)
 		auth.GET("/market/ai-stock-picks/detail", h.GetAIStockPickDetail)
 		auth.GET("/market/ai-stock-picks/stats", h.GetAIStockPickStats)
+
+		// AI买卖决策
+		auth.POST("/decision/analyze", h.AnalyzeStock)
+		auth.GET("/decision/history", h.GetStockDecisionHistory)
+		auth.GET("/decision/market-review", h.GetMarketReviewAPI)
+		auth.POST("/decision/market-review", h.RunMarketReview)
+		auth.GET("/decision/push-configs", h.GetPushConfigs)
+		auth.PUT("/decision/push-configs/:channel", h.UpdatePushConfig)
+		auth.POST("/decision/push-test/:channel", h.TestPushNotification)
+		auth.GET("/decision/news", h.GetStockNews)
 
 		// Today's stock picks (all users can read)
 		auth.GET("/stock-picks/today", h.GetTodayPicks)
