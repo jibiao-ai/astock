@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -327,8 +328,7 @@ type aiAnalysisResult struct {
 }
 
 func fetchStockQuoteForDecision(code string) *stockQuoteInfo {
-	// Use existing Eastmoney/Sina quote API
-	// Normalize: 600xxx -> sh600xxx, 000xxx -> sz000xxx
+	// Normalize code - remove market prefix
 	pureCode := code
 	secid := ""
 	if strings.HasPrefix(code, "6") || strings.HasPrefix(code, "5") {
@@ -336,7 +336,6 @@ func fetchStockQuoteForDecision(code string) *stockQuoteInfo {
 	} else if strings.HasPrefix(code, "0") || strings.HasPrefix(code, "3") {
 		secid = "0." + code
 	} else if strings.HasPrefix(code, "sh") || strings.HasPrefix(code, "sz") {
-		// Already has prefix
 		if strings.HasPrefix(code, "sh") {
 			secid = "1." + code[2:]
 			pureCode = code[2:]
@@ -348,13 +347,23 @@ func fetchStockQuoteForDecision(code string) *stockQuoteInfo {
 		secid = "1." + code // default to SH
 	}
 
-	// Method 1: push2.eastmoney.com - primary
-	quote := fetchQuoteFromPush2(secid, pureCode)
+	log.Printf("[Decision] Fetching quote for code=%s pureCode=%s secid=%s", code, pureCode, secid)
+
+	// Method 1: Tushare daily API - MOST RELIABLE from China servers
+	// Works even when Eastmoney APIs return 502
+	quote := fetchQuoteFromTushareDaily(pureCode)
+	if quote != nil {
+		log.Printf("[Decision] Got quote from Tushare daily API: %s(%.2f)", quote.Name, quote.Price)
+		return quote
+	}
+
+	// Method 2: push2.eastmoney.com
+	quote = fetchQuoteFromPush2(secid, pureCode)
 	if quote != nil {
 		return quote
 	}
 
-	// Method 2: Try the other market prefix (SH<->SZ)
+	// Method 3: Try the other market prefix (SH<->SZ)
 	altSecid := ""
 	if strings.HasPrefix(secid, "1.") {
 		altSecid = "0." + pureCode
@@ -366,14 +375,215 @@ func fetchStockQuoteForDecision(code string) *stockQuoteInfo {
 		return quote
 	}
 
-	// Method 3: push2his.eastmoney.com (alternative endpoint)
+	// Method 4: push2his.eastmoney.com (alternative endpoint)
 	quote = fetchQuoteFromPush2His(secid, pureCode)
+	if quote != nil {
+		return quote
+	}
+
+	// Method 5: AkShare microservice fallback
+	quote = fetchQuoteFromAkShare(pureCode)
+	if quote != nil {
+		return quote
+	}
+
+	// Method 6: AkShare individual stock info (doesn't rely on real-time spot)
+	quote = fetchQuoteFromAkShareIndividual(pureCode)
 	if quote != nil {
 		return quote
 	}
 
 	log.Printf("[Decision] All quote fetch methods failed for code=%s", code)
 	return nil
+}
+
+// fetchQuoteFromTushareDaily gets stock quote from Tushare daily API
+// This is the MOST RELIABLE method when running on a Chinese server with Tushare access
+func fetchQuoteFromTushareDaily(code string) *stockQuoteInfo {
+	// Convert to Tushare ts_code format: 600519 -> 600519.SH, 000001 -> 000001.SZ
+	tsCode := code
+	if !strings.Contains(code, ".") {
+		if strings.HasPrefix(code, "6") || strings.HasPrefix(code, "5") || strings.HasPrefix(code, "9") {
+			tsCode = code + ".SH"
+		} else {
+			tsCode = code + ".SZ"
+		}
+	}
+
+	// Try today first, then look back up to 10 days for the latest trading data
+	now := time.Now()
+	for i := 0; i < 10; i++ {
+		d := now.AddDate(0, 0, -i)
+		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+			continue
+		}
+		tradeDate := d.Format("20060102")
+
+		resp, err := callTushareAPI("daily", map[string]string{
+			"ts_code":    tsCode,
+			"trade_date": tradeDate,
+		}, "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount")
+		if err != nil {
+			log.Printf("[Decision] Tushare daily error for %s on %s: %v", tsCode, tradeDate, err)
+			continue
+		}
+
+		rows := tushareDataToMap(resp)
+		if len(rows) == 0 {
+			continue
+		}
+
+		row := rows[0]
+		price := tsFloat(row, "close")
+		if price == 0 {
+			continue
+		}
+
+		// Get stock name from Tushare stock_basic
+		name := getStockNameFromTushare(tsCode)
+		if name == "" {
+			name = code
+		}
+
+		log.Printf("[Decision] Tushare Quote OK: %s(%s) price=%.2f date=%s", name, code, price, tradeDate)
+		return &stockQuoteInfo{
+			Code:      code,
+			Name:      name,
+			Price:     price,
+			ChangePct: tsFloat(row, "pct_chg"),
+			PreClose:  tsFloat(row, "pre_close"),
+			High:      tsFloat(row, "high"),
+			Low:       tsFloat(row, "low"),
+			Volume:    tsFloat(row, "vol"),
+			Amount:    tsFloat(row, "amount"),
+		}
+	}
+
+	log.Printf("[Decision] Tushare daily: no data found for %s", tsCode)
+	return nil
+}
+
+// getStockNameFromTushare gets stock name using Tushare stock_basic API
+func getStockNameFromTushare(tsCode string) string {
+	resp, err := callTushareAPI("stock_basic", map[string]string{
+		"ts_code": tsCode,
+	}, "ts_code,name")
+	if err != nil {
+		return ""
+	}
+	rows := tushareDataToMap(resp)
+	if len(rows) == 0 {
+		return ""
+	}
+	return tsString(rows[0], "name")
+}
+
+// fetchQuoteFromAkShare gets stock quote from the AkShare Python microservice
+func fetchQuoteFromAkShare(code string) *stockQuoteInfo {
+	url := fmt.Sprintf("http://127.0.0.1:9090/stock_quote?code=%s", code)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[Decision] AkShare quote error: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		log.Printf("[Decision] AkShare quote parse error: %v", err)
+		return nil
+	}
+
+	respCode, _ := raw["code"].(float64)
+	if respCode != 0 {
+		log.Printf("[Decision] AkShare quote not found for %s", code)
+		return nil
+	}
+
+	data, ok := raw["data"].(map[string]interface{})
+	if !ok || data == nil {
+		return nil
+	}
+
+	price := safeFloat(data, "price")
+	if price == 0 {
+		return nil
+	}
+
+	name := safeString(data, "name")
+	changePct := safeFloat(data, "change_pct")
+	preClose := safeFloat(data, "pre_close")
+	high := safeFloat(data, "high")
+	low := safeFloat(data, "low")
+	volume := safeFloat(data, "volume")
+	amount := safeFloat(data, "amount")
+	stockCode := safeString(data, "code")
+	if stockCode == "" {
+		stockCode = code
+	}
+
+	log.Printf("[Decision] AkShare Quote OK: %s(%s) price=%.2f pct=%.2f%%", name, stockCode, price, changePct)
+	return &stockQuoteInfo{
+		Code:      stockCode,
+		Name:      name,
+		Price:     price,
+		ChangePct: changePct,
+		PreClose:  preClose,
+		High:      high,
+		Low:       low,
+		Volume:    volume,
+		Amount:    amount,
+	}
+}
+
+// fetchQuoteFromAkShareIndividual gets stock quote from AkShare using stock_individual_info_em
+// This endpoint queries a single stock directly, more reliable than full market spot
+func fetchQuoteFromAkShareIndividual(code string) *stockQuoteInfo {
+	url := fmt.Sprintf("http://127.0.0.1:9090/stock_individual?code=%s", code)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[Decision] AkShare individual error: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil
+	}
+
+	respCode, _ := raw["code"].(float64)
+	if respCode != 0 {
+		return nil
+	}
+
+	data, ok := raw["data"].(map[string]interface{})
+	if !ok || data == nil {
+		return nil
+	}
+
+	price := safeFloat(data, "price")
+	if price == 0 {
+		return nil
+	}
+
+	name := safeString(data, "name")
+	log.Printf("[Decision] AkShare Individual OK: %s(%s) price=%.2f", name, code, price)
+	return &stockQuoteInfo{
+		Code:      code,
+		Name:      name,
+		Price:     price,
+		ChangePct: safeFloat(data, "change_pct"),
+		PreClose:  safeFloat(data, "pre_close"),
+		High:      safeFloat(data, "high"),
+		Low:       safeFloat(data, "low"),
+		Volume:    safeFloat(data, "volume"),
+		Amount:    safeFloat(data, "amount"),
+	}
 }
 
 func fetchQuoteFromPush2(secid, code string) *stockQuoteInfo {
@@ -386,10 +596,15 @@ func fetchQuoteFromPush2(secid, code string) *stockQuoteInfo {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		log.Printf("[Decision] push2 HTTP status %d for secid=%s", resp.StatusCode, secid)
+		return nil
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 	var raw map[string]interface{}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		log.Printf("[Decision] push2 parse error: %v", err)
+		log.Printf("[Decision] push2 parse error: %v, body=%s", err, string(body[:min(200, len(body))]))
 		return nil
 	}
 
@@ -400,7 +615,7 @@ func fetchQuoteFromPush2(secid, code string) *stockQuoteInfo {
 	}
 
 	// Handle the case where f43 might be "-" (non-trading or suspended stock)
-	price := safeFloat(data, "f43")
+	price := decisionSafeFloat(data, "f43")
 	if price == 0 {
 		log.Printf("[Decision] push2 price=0 for secid=%s (possible holiday or suspended)", secid)
 		return nil
@@ -408,14 +623,14 @@ func fetchQuoteFromPush2(secid, code string) *stockQuoteInfo {
 
 	// Eastmoney returns price fields in cents (divided by 100)
 	price = price / 100
-	preClose := safeFloat(data, "f60") / 100
-	high := safeFloat(data, "f44") / 100
-	low := safeFloat(data, "f45") / 100
-	volume := safeFloat(data, "f47")
-	amount := safeFloat(data, "f48")
-	changePct := safeFloat(data, "f170") / 100
-	name := safeString(data, "f58")
-	stockCode := safeString(data, "f57")
+	preClose := decisionSafeFloat(data, "f60") / 100
+	high := decisionSafeFloat(data, "f44") / 100
+	low := decisionSafeFloat(data, "f45") / 100
+	volume := decisionSafeFloat(data, "f47")
+	amount := decisionSafeFloat(data, "f48")
+	changePct := decisionSafeFloat(data, "f170") / 100
+	name := decisionSafeString(data, "f58")
+	stockCode := decisionSafeString(data, "f57")
 	if stockCode == "" {
 		stockCode = code
 	}
@@ -439,6 +654,53 @@ func fetchQuoteFromPush2(secid, code string) *stockQuoteInfo {
 	}
 }
 
+// decisionSafeFloat safely extracts float from Eastmoney API response
+// Handles: float64, int, string (including "-" or "--" for no-data)
+func decisionSafeFloat(d map[string]interface{}, key string) float64 {
+	v, ok := d[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return val
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case string:
+		if val == "-" || val == "--" || val == "" {
+			return 0
+		}
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	case json.Number:
+		f, _ := val.Float64()
+		return f
+	}
+	return 0
+}
+
+// decisionSafeString safely extracts string from Eastmoney API response
+func decisionSafeString(d map[string]interface{}, key string) string {
+	v, ok := d[key]
+	if !ok || v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case string:
+		if val == "-" || val == "--" {
+			return ""
+		}
+		return val
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(val)
+	}
+	return fmt.Sprintf("%v", v)
+}
+
 func fetchQuoteFromPush2His(secid, code string) *stockQuoteInfo {
 	// Use push2his for historical/alternative quote
 	url := fmt.Sprintf("https://push2his.eastmoney.com/api/qt/stock/get?secid=%s&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f170", secid)
@@ -448,6 +710,10 @@ func fetchQuoteFromPush2His(secid, code string) *stockQuoteInfo {
 		return nil
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil
+	}
 
 	body, _ := io.ReadAll(resp.Body)
 	var raw map[string]interface{}
@@ -460,23 +726,23 @@ func fetchQuoteFromPush2His(secid, code string) *stockQuoteInfo {
 		return nil
 	}
 
-	price := safeFloat(data, "f43")
+	price := decisionSafeFloat(data, "f43")
 	if price == 0 {
 		return nil
 	}
 	price = price / 100
-	name := safeString(data, "f58")
+	name := decisionSafeString(data, "f58")
 	if name == "" {
 		return nil
 	}
 
-	preClose := safeFloat(data, "f60") / 100
-	high := safeFloat(data, "f44") / 100
-	low := safeFloat(data, "f45") / 100
-	volume := safeFloat(data, "f47")
-	amount := safeFloat(data, "f48")
-	changePct := safeFloat(data, "f170") / 100
-	stockCode := safeString(data, "f57")
+	preClose := decisionSafeFloat(data, "f60") / 100
+	high := decisionSafeFloat(data, "f44") / 100
+	low := decisionSafeFloat(data, "f45") / 100
+	volume := decisionSafeFloat(data, "f47")
+	amount := decisionSafeFloat(data, "f48")
+	changePct := decisionSafeFloat(data, "f170") / 100
+	stockCode := decisionSafeString(data, "f57")
 	if stockCode == "" {
 		stockCode = code
 	}
@@ -687,11 +953,19 @@ func callLLMAPI(baseURL, apiKey, model, prompt string) string {
 	reqBody := map[string]interface{}{
 		"model": model,
 		"messages": []map[string]string{
-			{"role": "system", "content": "你是专业A股分析师，严格按JSON格式输出分析结果。"},
+			{"role": "system", "content": "你是专业A股分析师，严格按JSON格式输出分析结果。不要使用markdown代码块，直接输出纯JSON。"},
 			{"role": "user", "content": prompt},
 		},
 		"temperature": 0.3,
-		"max_tokens":  2000,
+		"max_tokens":  4000,
+	}
+
+	// For Deepseek V4, adjust parameters to ensure content is returned properly
+	if strings.Contains(strings.ToLower(model), "deepseek") {
+		reqBody["temperature"] = 0
+		// Deepseek V4 doesn't need max_tokens, uses max_completion_tokens
+		delete(reqBody, "max_tokens")
+		reqBody["max_completion_tokens"] = 4000
 	}
 
 	jsonBody, _ := json.Marshal(reqBody)
@@ -716,16 +990,28 @@ func callLLMAPI(baseURL, apiKey, model, prompt string) string {
 	var result struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("[Decision] AI response unmarshal error: %v, body: %s", err, string(body[:min(300, len(body))]))
 		return ""
 	}
 	if len(result.Choices) > 0 {
-		return result.Choices[0].Message.Content
+		content := result.Choices[0].Message.Content
+		// Deepseek V4 may return analysis in reasoning_content when content is empty
+		if content == "" && result.Choices[0].Message.ReasoningContent != "" {
+			content = result.Choices[0].Message.ReasoningContent
+			log.Printf("[Decision] Using reasoning_content from Deepseek V4 (content was empty)")
+		}
+		if content != "" {
+			log.Printf("[Decision] AI response received, length=%d", len(content))
+		}
+		return content
 	}
+	log.Printf("[Decision] AI response has no choices")
 	return ""
 }
 
