@@ -670,6 +670,9 @@ func generateMarketReview() MarketReview {
 	if len(conceptHeat) > 5 {
 		conceptHeat = conceptHeat[:5]
 	}
+	if conceptHeat == nil {
+		conceptHeat = []gin.H{}
+	}
 	if hotJSON, err := json.Marshal(conceptHeat); err == nil {
 		review.HotSectors = string(hotJSON)
 	}

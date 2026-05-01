@@ -317,26 +317,26 @@ export default function DashboardPage() {
   }
 
   // Computed data from overview
-  const indices = overview?.indices || []
-  const distribution = overview?.distribution || []
+  const indices = Array.isArray(overview?.indices) ? overview.indices : []
+  const distribution = Array.isArray(overview?.distribution) ? overview.distribution : []
   const sentimentData = overview?.sentiment || {}
-  const sentimentHistory = overview?.sentiment_history || []
+  const sentimentHistory = Array.isArray(overview?.sentiment_history) ? overview.sentiment_history : []
   const overviewUpCount = overview?.up_count || 0
   const overviewDownCount = overview?.down_count || 0
   // total_amount is now in 万亿 from backend
   const overviewTotalAmount = overview?.total_amount || 0
 
   // Board ladder from overview API (new) or tsLimitStep (fallback)
-  const overviewBoardLadder = overview?.board_ladder || []
+  const overviewBoardLadder = Array.isArray(overview?.board_ladder) ? overview.board_ladder : []
   // Limit stocks from overview API
   const overviewLimitStocks = overview?.limit_stocks || {}
   // Concept heat from overview API (Tushare ths_daily)
-  const overviewConceptHeat = overview?.concept_heat || []
+  const overviewConceptHeat = Array.isArray(overview?.concept_heat) ? overview.concept_heat : []
 
   // Fallback to tsStats if overview not available
   const tsSentiment = tsStats?.market_sentiment || {}
-  const limitUps = tsStats?.limit_ups || []
-  const brokens = tsStats?.brokens || []
+  const limitUps = Array.isArray(tsStats?.limit_ups) ? tsStats.limit_ups : []
+  const brokens = Array.isArray(tsStats?.brokens) ? tsStats.brokens : []
   const boardLadder = tsStats?.board_ladder || (tsLimitStep ? { ladder: tsLimitStep.ladder_map, max_board: tsLimitStep.highest_board } : {})
 
   // Limit-up/down stocks: prefer overview API data, then tsLimitData
