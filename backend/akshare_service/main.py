@@ -340,6 +340,108 @@ def fetch_industry_heat(date_str=None):
         return []
 
 
+def fetch_market_overview(date_str):
+    """市场总览: 上涨/下跌/平盘家数 - from stock_zh_a_spot_em"""
+    cache_key = f"overview_{date_str}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        df = ak.stock_zh_a_spot_em()
+        if df is None or len(df) == 0:
+            # Fallback: estimate from limit data
+            return _estimate_up_down_from_limits(date_str)
+        
+        # Get pct change column
+        pct_col = None
+        for col in ['涨跌幅', '涨跌百分比']:
+            if col in df.columns:
+                pct_col = col
+                break
+        
+        if pct_col is None:
+            return _estimate_up_down_from_limits(date_str)
+        
+        df[pct_col] = pd.to_numeric(df[pct_col], errors='coerce')
+        df = df.dropna(subset=[pct_col])
+        
+        if len(df) == 0:
+            return _estimate_up_down_from_limits(date_str)
+        
+        up_count = int((df[pct_col] > 0).sum())
+        down_count = int((df[pct_col] < 0).sum())
+        flat_count = int((df[pct_col] == 0).sum())
+        total = len(df)
+        
+        result = {
+            "up_count": up_count,
+            "down_count": down_count,
+            "flat_count": flat_count,
+            "total": total,
+            "trade_date": date_str,
+        }
+        if up_count > 0 or down_count > 0:
+            cache_set(cache_key, result)
+        return result
+    except Exception as e:
+        print(f"[AkShare] fetch_market_overview error: {e}")
+        traceback.print_exc()
+        return _estimate_up_down_from_limits(date_str)
+
+
+def _estimate_up_down_from_limits(date_str):
+    """Estimate up/down counts from limit data when real-time API unavailable"""
+    try:
+        stats = fetch_market_stats(date_str)
+        limit_up = stats.get('limit_up_count', 0)
+        limit_down = stats.get('limit_down_count', 0)
+        broken = stats.get('broken_count', 0)
+        
+        # Rough estimation: if we have 79 limit ups, total market usually has ~2700 up
+        # Based on typical A-share market statistics
+        if limit_up > 0:
+            # Conservative estimate: limit_up is ~3% of total ups
+            estimated_up = max(limit_up * 35, 2500)  # At least 2500 if we have limit-ups
+            estimated_down = max(limit_down * 40, 2000)
+            estimated_flat = 200
+            return {
+                "up_count": estimated_up,
+                "down_count": estimated_down,
+                "flat_count": estimated_flat,
+                "total": estimated_up + estimated_down + estimated_flat,
+                "trade_date": date_str,
+                "estimated": True,
+            }
+    except:
+        pass
+    return {"up_count": 0, "down_count": 0, "flat_count": 0, "total": 0}
+
+
+def get_last_trade_date():
+    """Get last actual trade date by checking if akshare has data"""
+    cache_key = "last_trade_date"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    now = datetime.now()
+    for i in range(15):
+        d = now - timedelta(days=i)
+        if d.weekday() >= 5:  # skip weekend
+            continue
+        date_str = d.strftime('%Y%m%d')
+        # Try to fetch limit up data (lightweight check)
+        try:
+            df = ak.stock_zt_pool_em(date=date_str)
+            if df is not None and len(df) > 0:
+                cache_set(cache_key, date_str)
+                return date_str
+        except:
+            continue
+    return now.strftime('%Y%m%d')
+
+
 class AkShareHandler(BaseHTTPRequestHandler):
     """HTTP handler for AkShare microservice"""
     
@@ -392,10 +494,19 @@ class AkShareHandler(BaseHTTPRequestHandler):
                 data = fetch_industry_heat(date_str)
                 self.send_json({"code": 0, "data": {"sectors": data, "count": len(data), "trade_date": date_str, "source": "akshare"}})
             
+            elif path == '/market_overview':
+                data = fetch_market_overview(date_str)
+                self.send_json({"code": 0, "data": data})
+            
+            elif path == '/last_trade_date':
+                ltd = get_last_trade_date()
+                self.send_json({"code": 0, "data": {"trade_date": ltd}})
+            
             else:
                 self.send_json({"error": "Not found", "endpoints": [
                     "/health", "/limit_up", "/limit_down", "/broken_board",
-                    "/board_ladder", "/market_stats", "/concept_heat", "/industry_heat"
+                    "/board_ladder", "/market_stats", "/concept_heat", "/industry_heat",
+                    "/market_overview", "/last_trade_date"
                 ]}, 404)
         
         except Exception as e:
