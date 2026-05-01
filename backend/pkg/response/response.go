@@ -2,6 +2,7 @@ package response
 
 import (
 	"net/http"
+	"reflect"
 
 	"github.com/gin-gonic/gin"
 )
@@ -9,10 +10,19 @@ import (
 type APIResponse struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Data    interface{} `json:"data"`
 }
 
 func Success(c *gin.Context, data interface{}) {
+	// Ensure nil slices are serialized as [] instead of null
+	if data == nil {
+		data = []interface{}{}
+	} else {
+		v := reflect.ValueOf(data)
+		if v.Kind() == reflect.Slice && v.IsNil() {
+			data = []interface{}{}
+		}
+	}
 	c.JSON(http.StatusOK, APIResponse{Code: 0, Message: "success", Data: data})
 }
 

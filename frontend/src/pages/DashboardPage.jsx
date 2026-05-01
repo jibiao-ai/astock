@@ -254,25 +254,25 @@ export default function DashboardPage() {
         retryFetch(() => getTsMoneyflow({ trade_date: tsDate, category: 'stock', page: 1, page_size: MONEYFLOW_PAGE_SIZE })),
       ])
 
-      if (dashRes?.code === 0) setData(dashRes.data)
+      if (dashRes?.code === 0) setData(dashRes.data || null)
       if (conceptRes?.code === 0) {
-        const items = conceptRes.data?.items || conceptRes.data || []
+        const items = Array.isArray(conceptRes.data?.items) ? conceptRes.data.items : (Array.isArray(conceptRes.data) ? conceptRes.data : [])
         setConceptData(items)
         setConceptHeatTotal(conceptRes.data?.total || items.length)
       }
-      if (sectorFlowRes?.code === 0) setSectorFlows(sectorFlowRes.data?.flows || [])
-      if (conceptFlowRes?.code === 0) setConceptFlows(conceptFlowRes.data?.flows || [])
+      if (sectorFlowRes?.code === 0) setSectorFlows(Array.isArray(sectorFlowRes.data?.flows) ? sectorFlowRes.data.flows : [])
+      if (conceptFlowRes?.code === 0) setConceptFlows(Array.isArray(conceptFlowRes.data?.flows) ? conceptFlowRes.data.flows : [])
       if (sectorHeatRes?.code === 0) {
-        const items = sectorHeatRes.data?.items || []
+        const items = Array.isArray(sectorHeatRes.data?.items) ? sectorHeatRes.data.items : []
         setSectorHeatData(items)
         setSectorHeatTotal(sectorHeatRes.data?.total || items.length)
       }
-      if (overviewRes?.code === 0) setOverview(overviewRes.data)
+      if (overviewRes?.code === 0) setOverview(overviewRes.data || null)
       // Tushare data
-      if (tsStatsRes?.code === 0) setTsStats(tsStatsRes.data)
-      if (tsLimitRes?.code === 0) setTsLimitData(tsLimitRes.data)
-      if (tsStepRes?.code === 0) setTsLimitStep(tsStepRes.data)
-      if (tsMoneyflowRes?.code === 0) setTsMoneyflow(tsMoneyflowRes.data)
+      if (tsStatsRes?.code === 0) setTsStats(tsStatsRes.data || null)
+      if (tsLimitRes?.code === 0) setTsLimitData(tsLimitRes.data || null)
+      if (tsStepRes?.code === 0) setTsLimitStep(tsStepRes.data || null)
+      if (tsMoneyflowRes?.code === 0) setTsMoneyflow(tsMoneyflowRes.data || null)
     } catch (e) { console.error(e) }
     setLoading(false)
   }

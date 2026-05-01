@@ -1,6 +1,7 @@
 import useStore from '../store/useStore'
 import Sidebar from './Sidebar'
 import TodayPicksPopup from './TodayPicksPopup'
+import ErrorBoundary from './ErrorBoundary'
 import DashboardPage from '../pages/DashboardPage'
 import RealtimePage from '../pages/RealtimePage'
 // import ChatPage from '../pages/ChatPage'  // AI智能体已隐藏
@@ -54,7 +55,9 @@ export default function MainLayout() {
       <Sidebar />
       <div className="flex-1 overflow-hidden">
         <div className="h-full overflow-y-auto">
-          <PageComponent />
+          <ErrorBoundary>
+            <PageComponent />
+          </ErrorBoundary>
         </div>
       </div>
       <TodayPicksPopup />

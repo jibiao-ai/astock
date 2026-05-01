@@ -248,7 +248,7 @@ export default function StockDecisionPage() {
   const loadHistory = async () => {
     try {
       const res = await getDecisionHistory()
-      if (res?.data) setHistory(res.data)
+      setHistory(Array.isArray(res?.data) ? res.data : [])
     } catch (e) { /* silent */ }
   }
 
@@ -256,7 +256,7 @@ export default function StockDecisionPage() {
     setReviewLoading(true)
     try {
       const res = await getMarketReview()
-      if (res?.data) setReview(res.data)
+      if (res?.data && typeof res.data === 'object') setReview(res.data)
     } catch (e) { /* silent */ }
     setReviewLoading(false)
   }
@@ -266,7 +266,7 @@ export default function StockDecisionPage() {
     setNewsLoading(true)
     try {
       const res = await getStockNews({ code: stockCode })
-      if (res?.data) setNews(res.data)
+      setNews(Array.isArray(res?.data) ? res.data : [])
     } catch (e) { /* silent */ }
     setNewsLoading(false)
   }
@@ -279,11 +279,13 @@ export default function StockDecisionPage() {
     setAnalyzing(true)
     try {
       const res = await analyzeStock({ code: code.trim() })
-      if (res?.data) {
+      if (res?.data && typeof res.data === 'object') {
         setCurrentDecision(res.data)
         loadHistory()
         loadNews(code.trim())
         toast.success('分析完成')
+      } else {
+        toast.error('未获取到分析结果')
       }
     } catch (e) {
       toast.error('分析失败: ' + (e.response?.data?.message || '网络错误'))
@@ -295,7 +297,7 @@ export default function StockDecisionPage() {
     setReviewLoading(true)
     try {
       const res = await runMarketReview()
-      if (res?.data) setReview(res.data)
+      if (res?.data && typeof res.data === 'object') setReview(res.data)
       toast.success('大盘复盘已更新')
     } catch (e) {
       toast.error('更新失败')
