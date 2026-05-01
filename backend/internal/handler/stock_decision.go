@@ -165,7 +165,7 @@ func (h *Handler) GetStockDecisionHistory(c *gin.Context) {
 	code := c.Query("code")
 	limit := 20
 
-	var decisions []StockDecision
+	decisions := make([]StockDecision, 0)
 	query := repository.DB.Order("analyzed_at DESC").Limit(limit)
 	if code != "" {
 		query = query.Where("code = ?", code)
@@ -228,7 +228,7 @@ func (h *Handler) RunMarketReview(c *gin.Context) {
 
 // GetPushConfigs handles GET /api/decision/push-configs
 func (h *Handler) GetPushConfigs(c *gin.Context) {
-	var configs []PushConfig
+	configs := make([]PushConfig, 0)
 	repository.DB.Find(&configs)
 
 	// Ensure default channels exist
