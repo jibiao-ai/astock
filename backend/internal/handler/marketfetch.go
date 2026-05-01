@@ -290,12 +290,22 @@ func safeString(d map[string]interface{}, key string) string {
 }
 
 func safeFloat(d map[string]interface{}, key string) float64 {
-	if v, ok := d[key]; ok {
+	if v, ok := d[key]; ok && v != nil {
 		switch val := v.(type) {
 		case float64:
 			return val
+		case int:
+			return float64(val)
+		case int64:
+			return float64(val)
 		case string:
+			if val == "-" || val == "--" || val == "" {
+				return 0
+			}
 			f, _ := strconv.ParseFloat(val, 64)
+			return f
+		case json.Number:
+			f, _ := val.Float64()
 			return f
 		}
 	}

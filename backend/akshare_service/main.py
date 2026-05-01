@@ -13,6 +13,10 @@ Endpoints:
   GET /market_stats    - 综合统计 (最高板/炸板率/封板比)
   GET /concept_heat    - 概念板块热力 (stock_board_concept_name_em)
   GET /industry_heat   - 行业板块热力 (stock_board_industry_name_em)
+  GET /market_overview - 市场涨跌家数 (stock_zh_a_spot_em)
+  GET /last_trade_date - 最后交易日
+  GET /stock_quote     - 个股实时行情 (stock_zh_a_spot_em)
+  GET /stock_individual - 个股行情 (stock_zh_a_hist / stock_individual_info_em)
 """
 
 import json
@@ -442,6 +446,155 @@ def get_last_trade_date():
     return now.strftime('%Y%m%d')
 
 
+def fetch_stock_quote(code):
+    """获取个股实时行情 - AkShare stock_zh_a_spot_em + filter by code"""
+    cache_key = f"quote_{code}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        # stock_zh_a_spot_em returns all A-share stocks with real-time data
+        # Use cache to avoid repeated full-market fetch
+        all_stocks_key = "all_stocks_spot"
+        all_data = cache_get(all_stocks_key)
+        
+        if all_data is None:
+            df = ak.stock_zh_a_spot_em()
+            if df is None or len(df) == 0:
+                return None
+            # Build a dict keyed by code for fast lookup
+            all_data = {}
+            for _, row in df.iterrows():
+                stock_code = str(row.get('代码', ''))
+                all_data[stock_code] = row
+            cache_set(all_stocks_key, all_data)
+        
+        # Lookup by code
+        row = all_data.get(code)
+        if row is None:
+            # Try with zero-padding
+            code_padded = code.zfill(6)
+            row = all_data.get(code_padded)
+        
+        if row is None:
+            return None
+        
+        result = {
+            "code": str(row.get('代码', code)),
+            "name": str(row.get('名称', '')),
+            "price": float(row.get('最新价', 0) or 0),
+            "change_pct": float(row.get('涨跌幅', 0) or 0),
+            "change_amount": float(row.get('涨跌额', 0) or 0),
+            "volume": float(row.get('成交量', 0) or 0),
+            "amount": float(row.get('成交额', 0) or 0),
+            "open": float(row.get('今开', 0) or 0),
+            "high": float(row.get('最高', 0) or 0),
+            "low": float(row.get('最低', 0) or 0),
+            "pre_close": float(row.get('昨收', 0) or 0),
+            "turnover_ratio": float(row.get('换手率', 0) or 0),
+        }
+        
+        if result["price"] > 0:
+            cache_set(cache_key, result)
+            return result
+        return None
+    except Exception as e:
+        print(f"[AkShare] fetch_stock_quote error for {code}: {e}")
+        traceback.print_exc()
+        return None
+
+
+def fetch_stock_individual(code):
+    """获取个股行情 - Using stock_bid_ask_em (逐笔) or stock_zh_a_hist for latest data
+    This is more reliable than stock_zh_a_spot_em when market is closed"""
+    cache_key = f"individual_{code}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    # Determine market prefix for some APIs
+    if code.startswith('6') or code.startswith('5') or code.startswith('9'):
+        symbol = f"sh{code}"
+        market = "sh"
+    else:
+        symbol = f"sz{code}"
+        market = "sz"
+
+    # Method 1: Try stock_zh_a_hist (historical daily) for latest close price
+    try:
+        # Get last 5 days of history
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=15)).strftime('%Y%m%d')
+        df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+        if df is not None and len(df) > 0:
+            # Get the most recent row
+            latest = df.iloc[-1]
+            prev = df.iloc[-2] if len(df) > 1 else latest
+            
+            price = float(latest.get('收盘', 0) or 0)
+            if price > 0:
+                pre_close = float(prev.get('收盘', 0) or 0) if len(df) > 1 else float(latest.get('开盘', 0) or 0)
+                change_pct = 0.0
+                if pre_close > 0:
+                    change_pct = (price - pre_close) / pre_close * 100
+                
+                # Try to get stock name from the data or use stock_individual_info_em
+                name = ""
+                try:
+                    info_df = ak.stock_individual_info_em(symbol=code)
+                    if info_df is not None and len(info_df) > 0:
+                        for _, row in info_df.iterrows():
+                            item_name = str(row.get('item', ''))
+                            if '股票简称' in item_name or '简称' in item_name:
+                                name = str(row.get('value', ''))
+                                break
+                except:
+                    pass
+                
+                if not name:
+                    name = code
+                
+                result = {
+                    "code": code,
+                    "name": name,
+                    "price": price,
+                    "change_pct": round(change_pct, 2),
+                    "pre_close": pre_close,
+                    "high": float(latest.get('最高', 0) or 0),
+                    "low": float(latest.get('最低', 0) or 0),
+                    "volume": float(latest.get('成交量', 0) or 0),
+                    "amount": float(latest.get('成交额', 0) or 0),
+                    "open": float(latest.get('开盘', 0) or 0),
+                    "source": "stock_zh_a_hist",
+                }
+                cache_set(cache_key, result)
+                print(f"[AkShare] stock_individual OK for {code}: {name} price={price}")
+                return result
+    except Exception as e:
+        print(f"[AkShare] stock_zh_a_hist error for {code}: {e}")
+
+    # Method 2: Try stock_individual_info_em for basic info
+    try:
+        info_df = ak.stock_individual_info_em(symbol=code)
+        if info_df is not None and len(info_df) > 0:
+            info_dict = {}
+            for _, row in info_df.iterrows():
+                item_name = str(row.get('item', ''))
+                item_value = row.get('value', '')
+                info_dict[item_name] = item_value
+            
+            # Try to extract price-related info
+            name = info_dict.get('股票简称', '') or info_dict.get('简称', '') or code
+            # stock_individual_info_em doesn't always have price, so this is limited
+            # But we can at least get the name
+            print(f"[AkShare] stock_individual_info_em got name={name} for {code}")
+    except Exception as e:
+        print(f"[AkShare] stock_individual_info_em error for {code}: {e}")
+
+    return None
+
+
 class AkShareHandler(BaseHTTPRequestHandler):
     """HTTP handler for AkShare microservice"""
     
@@ -502,11 +655,33 @@ class AkShareHandler(BaseHTTPRequestHandler):
                 ltd = get_last_trade_date()
                 self.send_json({"code": 0, "data": {"trade_date": ltd}})
             
+            elif path == '/stock_quote':
+                code = params.get('code', [None])[0]
+                if not code:
+                    self.send_json({"code": -1, "error": "missing code parameter"}, 400)
+                    return
+                data = fetch_stock_quote(code)
+                if data:
+                    self.send_json({"code": 0, "data": data})
+                else:
+                    self.send_json({"code": -1, "error": f"stock {code} not found"}, 404)
+            
+            elif path == '/stock_individual':
+                code = params.get('code', [None])[0]
+                if not code:
+                    self.send_json({"code": -1, "error": "missing code parameter"}, 400)
+                    return
+                data = fetch_stock_individual(code)
+                if data:
+                    self.send_json({"code": 0, "data": data})
+                else:
+                    self.send_json({"code": -1, "error": f"stock {code} individual data not found"}, 404)
+            
             else:
                 self.send_json({"error": "Not found", "endpoints": [
                     "/health", "/limit_up", "/limit_down", "/broken_board",
                     "/board_ladder", "/market_stats", "/concept_heat", "/industry_heat",
-                    "/market_overview", "/last_trade_date"
+                    "/market_overview", "/last_trade_date", "/stock_quote", "/stock_individual"
                 ]}, 404)
         
         except Exception as e:
