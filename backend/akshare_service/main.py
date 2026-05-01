@@ -181,7 +181,9 @@ def fetch_broken_board(date_str):
 
 
 def fetch_board_ladder(date_str):
-    """连板天梯 - Built from stock_zt_pool_em 连板数 field"""
+    """连板天梯 - Built from stock_zt_pool_em 连板数 field
+    Each stock includes: code, name, close, pct_chg, turnover_ratio, amount, tag, status
+    """
     cache_key = f"ladder_{date_str}"
     cached = cache_get(cache_key)
     if cached:
@@ -203,9 +205,18 @@ def fetch_board_ladder(date_str):
                 level_stocks = multi_board[multi_board['连板数'] == level]
                 stocks = []
                 for _, row in level_stocks.iterrows():
+                    limit_times = int(row.get('连板数', 1))
                     stocks.append({
                         "code": str(row.get('代码', '')),
                         "name": str(row.get('名称', '')),
+                        "close": float(row.get('最新价', 0) or 0),
+                        "pct_chg": float(row.get('涨跌幅', 0) or 0),
+                        "turnover_ratio": float(row.get('换手率', 0) or 0),
+                        "amount": float(row.get('成交额', 0) or 0),
+                        "tag": str(row.get('所属行业', '')),
+                        "status": f"{limit_times}连板",
+                        "first_time": str(row.get('首次封板时间', '')),
+                        "last_time": str(row.get('最后封板时间', '')),
                     })
                 ladder.append({
                     "level": int(level),

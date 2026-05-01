@@ -1019,9 +1019,25 @@ func fetchBoardLadderFromLimitList(tradeDate string) []gin.H {
 		if level < 2 {
 			continue
 		}
+		status := item.Status
+		if status == "" {
+			status = fmt.Sprintf("%d连板", level)
+		}
+		tag := item.Tag
+		if tag == "" {
+			tag = item.Industry
+		}
 		ladderMap[level] = append(ladderMap[level], gin.H{
-			"code": tsCodeToCode(item.TsCode),
-			"name": item.Name,
+			"code":           tsCodeToCode(item.TsCode),
+			"name":           item.Name,
+			"close":          item.Close,
+			"pct_chg":        item.PctChg,
+			"amount":         item.Amount,
+			"turnover_ratio": item.TurnoverRatio,
+			"tag":            tag,
+			"status":         status,
+			"first_time":     item.FirstTime,
+			"last_time":      item.LastTime,
 		})
 	}
 
@@ -1088,8 +1104,14 @@ func fetchBoardLadderFromEastmoneyPool() []gin.H {
 			continue
 		}
 		ladderMap[boardCount] = append(ladderMap[boardCount], gin.H{
-			"code": code,
-			"name": name,
+			"code":           code,
+			"name":           name,
+			"close":          safeFloat(d, "f2") / 100.0,  // Eastmoney returns price in cents
+			"pct_chg":        safeFloat(d, "f3") / 100.0,  // Eastmoney returns pct * 100
+			"amount":         safeFloat(d, "f6"),
+			"turnover_ratio": safeFloat(d, "f8") / 100.0,
+			"tag":            "",
+			"status":         fmt.Sprintf("%d连板", boardCount),
 		})
 	}
 
@@ -1994,6 +2016,7 @@ func fetchAkShareMarketStats(tradeDate string) (int, int, int, int, float64, str
 }
 
 // fetchAkShareBoardLadder gets board ladder (连板天梯) from AkShare service
+// Returns full stock details: code, name, close, pct_chg, turnover_ratio, amount, tag, status
 func fetchAkShareBoardLadder(tradeDate string) []gin.H {
 	data, err := fetchAkShareJSON(fmt.Sprintf("/board_ladder?trade_date=%s", tradeDate))
 	if err != nil {
@@ -2022,8 +2045,16 @@ func fetchAkShareBoardLadder(tradeDate string) []gin.H {
 					continue
 				}
 				stocks = append(stocks, gin.H{
-					"code": safeString(sm, "code"),
-					"name": safeString(sm, "name"),
+					"code":           safeString(sm, "code"),
+					"name":           safeString(sm, "name"),
+					"close":          safeFloat(sm, "close"),
+					"pct_chg":        safeFloat(sm, "pct_chg"),
+					"turnover_ratio": safeFloat(sm, "turnover_ratio"),
+					"amount":         safeFloat(sm, "amount"),
+					"tag":            safeString(sm, "tag"),
+					"status":         safeString(sm, "status"),
+					"first_time":     safeString(sm, "first_time"),
+					"last_time":      safeString(sm, "last_time"),
 				})
 			}
 		}
