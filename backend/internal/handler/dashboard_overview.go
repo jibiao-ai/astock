@@ -44,6 +44,34 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 	// From this we derive: 涨跌分布, 成交额, 涨停数/跌停数, 涨跌家数
 	snapshot := fetchTushareMarketDaily(tradeDate)
 
+	// If Tushare returns no data (possible holiday), try previous trading days
+	if snapshot == nil {
+		for i := 1; i <= 5; i++ {
+			prevDate := findPrevWeekday(tradeDate, i)
+			if prevDate == tradeDate {
+				continue
+			}
+			snapshot = fetchTushareMarketDaily(prevDate)
+			if snapshot != nil {
+				log.Printf("[DashboardOverview] Found data on previous date %s (today %s may be holiday)", prevDate, tradeDate)
+				tradeDate = prevDate
+				break
+			}
+		}
+	}
+
+	// Also try AkShare to discover actual last trade date
+	if snapshot == nil {
+		akTradeDate := fetchAkShareLastTradeDate()
+		if akTradeDate != "" && akTradeDate != tradeDate {
+			log.Printf("[DashboardOverview] AkShare reports last trade date: %s", akTradeDate)
+			snapshot = fetchTushareMarketDaily(akTradeDate)
+			if snapshot != nil {
+				tradeDate = akTradeDate
+			}
+		}
+	}
+
 	// 1. Fetch major indices from Eastmoney (real-time, always fast)
 	indices := fetchMajorIndicesRobust()
 
@@ -126,6 +154,23 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 		flatCount = snapshot.FlatCount
 	} else {
 		upCount, downCount, flatCount = fetchUpDownCountsRobust(distribution)
+	}
+
+	// AkShare fallback for up/down counts (uses stock_zh_a_spot_em)
+	if upCount == 0 && downCount == 0 {
+		akOverview := fetchAkShareMarketOverview(tradeDate)
+		if akOverview != nil {
+			if v, ok := akOverview["up_count"].(int); ok && v > 0 {
+				upCount = v
+			}
+			if v, ok := akOverview["down_count"].(int); ok && v > 0 {
+				downCount = v
+			}
+			if v, ok := akOverview["flat_count"].(int); ok && v > 0 {
+				flatCount = v
+			}
+			log.Printf("[UpDown] AkShare fallback: up=%d, down=%d, flat=%d", upCount, downCount, flatCount)
+		}
 	}
 
 	// 8. Sentiment score
@@ -1860,6 +1905,38 @@ func fetchTushareIndustryHeat(tradeDate string) []gin.H {
 
 const akshareServiceURL = "http://127.0.0.1:9090"
 
+// findPrevWeekday returns the trade date N weekdays before the given date
+func findPrevWeekday(tradeDate string, daysBack int) string {
+	t, err := time.Parse("20060102", tradeDate)
+	if err != nil {
+		return tradeDate
+	}
+	count := 0
+	for i := 1; count < daysBack; i++ {
+		prev := t.AddDate(0, 0, -i)
+		if prev.Weekday() != time.Saturday && prev.Weekday() != time.Sunday {
+			count++
+			if count == daysBack {
+				return prev.Format("20060102")
+			}
+		}
+	}
+	return tradeDate
+}
+
+// fetchAkShareLastTradeDate gets the actual last trade date from AkShare service
+func fetchAkShareLastTradeDate() string {
+	data, err := fetchAkShareJSON("/last_trade_date")
+	if err != nil {
+		log.Printf("[AkShare] last_trade_date error: %v", err)
+		return ""
+	}
+	if td, ok := data["trade_date"].(string); ok && td != "" {
+		return td
+	}
+	return ""
+}
+
 // fetchAkShareJSON calls the AkShare microservice and returns parsed JSON response
 func fetchAkShareJSON(path string) (map[string]interface{}, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -2087,6 +2164,29 @@ func fetchAkShareConceptHeat(tradeDate string) []gin.H {
 
 	log.Printf("[AkShare] concept_heat: got %d concepts", len(concepts))
 	return concepts
+}
+
+// fetchAkShareMarketOverview gets market up/down counts from AkShare stock_zh_a_spot_em
+func fetchAkShareMarketOverview(tradeDate string) map[string]interface{} {
+	data, err := fetchAkShareJSON(fmt.Sprintf("/market_overview?trade_date=%s", tradeDate))
+	if err != nil {
+		log.Printf("[AkShare] market_overview error: %v", err)
+		return nil
+	}
+
+	upCount := int(safeFloat(data, "up_count"))
+	downCount := int(safeFloat(data, "down_count"))
+	flatCount := int(safeFloat(data, "flat_count"))
+
+	if upCount > 0 || downCount > 0 {
+		log.Printf("[AkShare] market_overview: up=%d, down=%d, flat=%d", upCount, downCount, flatCount)
+		return map[string]interface{}{
+			"up_count":   upCount,
+			"down_count": downCount,
+			"flat_count": flatCount,
+		}
+	}
+	return nil
 }
 
 // Ensure imports are used

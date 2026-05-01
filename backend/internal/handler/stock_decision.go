@@ -329,6 +329,7 @@ type aiAnalysisResult struct {
 func fetchStockQuoteForDecision(code string) *stockQuoteInfo {
 	// Use existing Eastmoney/Sina quote API
 	// Normalize: 600xxx -> sh600xxx, 000xxx -> sz000xxx
+	pureCode := code
 	secid := ""
 	if strings.HasPrefix(code, "6") || strings.HasPrefix(code, "5") {
 		secid = "1." + code
@@ -338,19 +339,49 @@ func fetchStockQuoteForDecision(code string) *stockQuoteInfo {
 		// Already has prefix
 		if strings.HasPrefix(code, "sh") {
 			secid = "1." + code[2:]
-			code = code[2:]
+			pureCode = code[2:]
 		} else {
 			secid = "0." + code[2:]
-			code = code[2:]
+			pureCode = code[2:]
 		}
 	} else {
 		secid = "1." + code // default to SH
 	}
 
+	// Method 1: push2.eastmoney.com - primary
+	quote := fetchQuoteFromPush2(secid, pureCode)
+	if quote != nil {
+		return quote
+	}
+
+	// Method 2: Try the other market prefix (SH<->SZ)
+	altSecid := ""
+	if strings.HasPrefix(secid, "1.") {
+		altSecid = "0." + pureCode
+	} else {
+		altSecid = "1." + pureCode
+	}
+	quote = fetchQuoteFromPush2(altSecid, pureCode)
+	if quote != nil {
+		return quote
+	}
+
+	// Method 3: push2his.eastmoney.com (alternative endpoint)
+	quote = fetchQuoteFromPush2His(secid, pureCode)
+	if quote != nil {
+		return quote
+	}
+
+	log.Printf("[Decision] All quote fetch methods failed for code=%s", code)
+	return nil
+}
+
+func fetchQuoteFromPush2(secid, code string) *stockQuoteInfo {
 	url := fmt.Sprintf("https://push2.eastmoney.com/api/qt/stock/get?secid=%s&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f170", secid)
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
-		log.Printf("[Decision] Quote fetch error: %v", err)
+		log.Printf("[Decision] push2 quote fetch error: %v", err)
 		return nil
 	}
 	defer resp.Body.Close()
@@ -358,15 +389,25 @@ func fetchStockQuoteForDecision(code string) *stockQuoteInfo {
 	body, _ := io.ReadAll(resp.Body)
 	var raw map[string]interface{}
 	if err := json.Unmarshal(body, &raw); err != nil {
+		log.Printf("[Decision] push2 parse error: %v", err)
 		return nil
 	}
 
 	data, ok := raw["data"].(map[string]interface{})
-	if !ok {
+	if !ok || data == nil {
+		log.Printf("[Decision] push2 no data for secid=%s", secid)
 		return nil
 	}
 
-	price := safeFloat(data, "f43") / 100
+	// Handle the case where f43 might be "-" (non-trading or suspended stock)
+	price := safeFloat(data, "f43")
+	if price == 0 {
+		log.Printf("[Decision] push2 price=0 for secid=%s (possible holiday or suspended)", secid)
+		return nil
+	}
+
+	// Eastmoney returns price fields in cents (divided by 100)
+	price = price / 100
 	preClose := safeFloat(data, "f60") / 100
 	high := safeFloat(data, "f44") / 100
 	low := safeFloat(data, "f45") / 100
@@ -379,8 +420,65 @@ func fetchStockQuoteForDecision(code string) *stockQuoteInfo {
 		stockCode = code
 	}
 
+	if name == "" {
+		log.Printf("[Decision] push2 no name for secid=%s", secid)
+		return nil
+	}
+
+	log.Printf("[Decision] Quote OK: %s(%s) price=%.2f pct=%.2f%%", name, stockCode, price, changePct)
+	return &stockQuoteInfo{
+		Code:      stockCode,
+		Name:      name,
+		Price:     price,
+		ChangePct: changePct,
+		PreClose:  preClose,
+		High:      high,
+		Low:       low,
+		Volume:    volume,
+		Amount:    amount,
+	}
+}
+
+func fetchQuoteFromPush2His(secid, code string) *stockQuoteInfo {
+	// Use push2his for historical/alternative quote
+	url := fmt.Sprintf("https://push2his.eastmoney.com/api/qt/stock/get?secid=%s&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f170", secid)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil
+	}
+
+	data, ok := raw["data"].(map[string]interface{})
+	if !ok || data == nil {
+		return nil
+	}
+
+	price := safeFloat(data, "f43")
 	if price == 0 {
 		return nil
+	}
+	price = price / 100
+	name := safeString(data, "f58")
+	if name == "" {
+		return nil
+	}
+
+	preClose := safeFloat(data, "f60") / 100
+	high := safeFloat(data, "f44") / 100
+	low := safeFloat(data, "f45") / 100
+	volume := safeFloat(data, "f47")
+	amount := safeFloat(data, "f48")
+	changePct := safeFloat(data, "f170") / 100
+	stockCode := safeString(data, "f57")
+	if stockCode == "" {
+		stockCode = code
 	}
 
 	return &stockQuoteInfo{
@@ -518,6 +616,13 @@ func generateTemplateAnalysis(quote *stockQuoteInfo) aiAnalysisResult {
 	}
 }
 
+// Built-in Deepseek V4 model configuration (hardcoded fallback)
+const (
+	builtinAIBaseURL = "https://api.deepseek.com"
+	builtinAIAPIKey  = "sk-333cd19a71b448139bbccc06ccdd651a"
+	builtinAIModel   = "deepseek-v4-pro"
+)
+
 func getDecisionAIConfig() (baseURL, apiKey, modelName string) {
 	// Priority: Check system_configs for decision AI settings
 	var configs []model.SystemConfig
@@ -551,8 +656,15 @@ func getDecisionAIConfig() (baseURL, apiKey, modelName string) {
 		}
 	}
 
+	// Final fallback: built-in Deepseek V4 config
+	if baseURL == "" {
+		baseURL = builtinAIBaseURL
+	}
+	if apiKey == "" {
+		apiKey = builtinAIAPIKey
+	}
 	if modelName == "" {
-		modelName = "deepseek-chat"
+		modelName = builtinAIModel
 	}
 
 	return
@@ -636,6 +748,43 @@ func generateMarketReview() MarketReview {
 		review.LimitUp = snapshot.LimitUpCount
 	}
 
+	// Fallback: AkShare for up/down counts if Tushare returned zeros
+	if review.UpCount == 0 && review.DownCount == 0 {
+		// Try Eastmoney up/down index fields first
+		emUp, emDown, _ := fetchUpDownFromIndices()
+		if emUp > 0 || emDown > 0 {
+			review.UpCount = emUp
+			review.DownCount = emDown
+			log.Printf("[MarketReview] Up/Down from Eastmoney: up=%d, down=%d", emUp, emDown)
+		}
+	}
+
+	// Fallback: AkShare market_overview for up/down counts
+	if review.UpCount == 0 && review.DownCount == 0 {
+		akOverview := fetchAkShareMarketOverview(tradeDate)
+		if akOverview != nil {
+			if up, ok := akOverview["up_count"].(int); ok && up > 0 {
+				review.UpCount = up
+			}
+			if down, ok := akOverview["down_count"].(int); ok && down > 0 {
+				review.DownCount = down
+			}
+			log.Printf("[MarketReview] Up/Down from AkShare overview: up=%d, down=%d", review.UpCount, review.DownCount)
+		}
+	}
+
+	// Fallback: AkShare for limit_up/down counts
+	if review.LimitUp == 0 {
+		akUp, akDown, _, akHighest, _, _ := fetchAkShareMarketStats(tradeDate)
+		if akUp > 0 {
+			review.LimitUp = akUp
+			if akHighest > review.HighestBoard {
+				review.HighestBoard = akHighest
+			}
+			log.Printf("[MarketReview] LimitUp from AkShare: up=%d, down=%d, highest=%d", akUp, akDown, akHighest)
+		}
+	}
+
 	// Get indices
 	indices := fetchMajorIndicesRobust()
 	for _, idx := range indices {
@@ -661,6 +810,12 @@ func generateMarketReview() MarketReview {
 		review.HighestBoard = sentiment.HighestBoard
 		if review.LimitUp == 0 {
 			review.LimitUp = sentiment.LimitUpCount
+		}
+		if review.UpCount == 0 {
+			review.UpCount = sentiment.UpCount
+		}
+		if review.DownCount == 0 {
+			review.DownCount = sentiment.DownCount
 		}
 	}
 
