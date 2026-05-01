@@ -884,9 +884,10 @@ func generateTemplateAnalysis(quote *stockQuoteInfo) aiAnalysisResult {
 
 // Built-in Deepseek V4 model configuration (hardcoded fallback)
 const (
-	builtinAIBaseURL = "https://api.deepseek.com"
-	builtinAIAPIKey  = "sk-333cd19a71b448139bbccc06ccdd651a"
-	builtinAIModel   = "deepseek-v4-pro"
+	builtinAIBaseURL    = "https://api.deepseek.com"
+	builtinAIAPIKey     = "sk-333cd19a71b448139bbccc06ccdd651a"
+	builtinAIModel      = "deepseek-v4-pro"
+	builtinAIFlashModel = "deepseek-v4-flash" // 快速模型用于资讯生成
 )
 
 func getDecisionAIConfig() (baseURL, apiKey, modelName string) {
@@ -1278,14 +1279,19 @@ func fetchStockNewsFromEastmoney(code, name string) []gin.H {
 	resp, err := client.Get(url)
 	if err != nil {
 		log.Printf("[Decision] News fetch error: %v", err)
-		return generateFallbackNews(code, name)
+		return fetchNewsFromDeepseek(code, name)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Printf("[Decision] News API HTTP %d", resp.StatusCode)
+		return fetchNewsFromDeepseek(code, name)
+	}
 
 	body, _ := io.ReadAll(resp.Body)
 	var raw map[string]interface{}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return generateFallbackNews(code, name)
+		return fetchNewsFromDeepseek(code, name)
 	}
 
 	var news []gin.H
@@ -1331,21 +1337,115 @@ func fetchStockNewsFromEastmoney(code, name string) []gin.H {
 	}
 
 	if len(news) == 0 {
-		return generateFallbackNews(code, name)
+		return fetchNewsFromDeepseek(code, name)
 	}
 
 	return news
 }
 
-func generateFallbackNews(code, name string) []gin.H {
+// fetchNewsFromDeepseek uses Deepseek AI to generate stock-related news/analysis
+// Called as fallback when Eastmoney news API is unavailable
+func fetchNewsFromDeepseek(code, name string) []gin.H {
+	if name == "" {
+		name = code
+	}
+
+	log.Printf("[Decision] Fetching news from Deepseek for %s(%s)", name, code)
+
+	// Use the built-in flash model for news (faster and cheaper)
+	baseURL := builtinAIBaseURL
+	apiKey := builtinAIAPIKey
+	model := builtinAIFlashModel
+
+	prompt := fmt.Sprintf(`请为A股股票 %s（代码：%s）提供最近的相关资讯分析。
+
+请以JSON数组格式返回5-8条资讯，每条包含title、summary、source、date字段。
+内容应包括：行业动态、公司基本面、技术面分析、政策影响、市场情绪等方面。
+确保信息专业、有参考价值。日期使用今天的日期。
+
+严格按以下JSON格式输出（不要markdown代码块）：
+[
+  {"title": "标题", "summary": "50-80字摘要", "source": "来源名称", "date": "%s"},
+  ...
+]`, name, code, time.Now().Format("2006-01-02"))
+
+	result := callLLMAPI(baseURL, apiKey, model, prompt)
+	if result == "" {
+		log.Printf("[Decision] Deepseek news generation failed for %s", code)
+		return generateStaticFallbackNews(code, name)
+	}
+
+	// Parse AI response - it should be a JSON array
+	cleaned := strings.TrimSpace(result)
+	cleaned = strings.TrimPrefix(cleaned, "```json")
+	cleaned = strings.TrimPrefix(cleaned, "```")
+	cleaned = strings.TrimSuffix(cleaned, "```")
+	cleaned = strings.TrimSpace(cleaned)
+
+	var newsItems []struct {
+		Title   string `json:"title"`
+		Summary string `json:"summary"`
+		Source  string `json:"source"`
+		Date    string `json:"date"`
+	}
+
+	if err := json.Unmarshal([]byte(cleaned), &newsItems); err != nil {
+		log.Printf("[Decision] Deepseek news parse error: %v, raw: %s", err, cleaned[:min(200, len(cleaned))])
+		// Try to extract from possible wrapper object
+		var wrapper map[string]interface{}
+		if err2 := json.Unmarshal([]byte(cleaned), &wrapper); err2 == nil {
+			// Maybe it returned {"news": [...]} or similar
+			for _, v := range wrapper {
+				if arr, ok := v.([]interface{}); ok {
+					resultJSON, _ := json.Marshal(arr)
+					json.Unmarshal(resultJSON, &newsItems)
+					break
+				}
+			}
+		}
+		if len(newsItems) == 0 {
+			return generateStaticFallbackNews(code, name)
+		}
+	}
+
+	news := make([]gin.H, 0, len(newsItems))
+	for _, item := range newsItems {
+		if item.Title == "" {
+			continue
+		}
+		if item.Date == "" {
+			item.Date = time.Now().Format("2006-01-02")
+		}
+		if item.Source == "" {
+			item.Source = "AI分析"
+		}
+		news = append(news, gin.H{
+			"title":   item.Title,
+			"summary": item.Summary,
+			"source":  item.Source,
+			"date":    item.Date,
+			"link":    fmt.Sprintf("https://quote.eastmoney.com/%s.html", code),
+		})
+	}
+
+	if len(news) == 0 {
+		return generateStaticFallbackNews(code, name)
+	}
+
+	log.Printf("[Decision] Deepseek generated %d news items for %s(%s)", len(news), name, code)
+	return news
+}
+
+// generateStaticFallbackNews returns a minimal static fallback (last resort)
+func generateStaticFallbackNews(code, name string) []gin.H {
 	if name == "" {
 		name = code
 	}
 	now := time.Now().Format("2006-01-02")
 	return []gin.H{
 		{
-			"title":   fmt.Sprintf("%s(%s) - 行业深度分析报告", name, code),
-			"summary": "暂无实时资讯，请稍后刷新获取最新消息。配置AI模型后可获取更多分析。",
+			"title":   fmt.Sprintf("%s(%s) - 综合分析", name, code),
+			"summary": "AI资讯服务暂时不可用，请稍后重试。",
 			"source":  "系统提示",
 			"date":    now,
 			"link":    fmt.Sprintf("https://quote.eastmoney.com/%s.html", code),
