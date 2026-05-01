@@ -720,54 +720,115 @@ export default function DashboardPage() {
             </h3>
             <RefreshBtn onClick={() => refreshSection('step')} />
           </div>
-          {/* Summary stats */}
+          {/* Summary stats - 炸板 & 最高X板 from AkShare market_stats */}
           <div className="flex items-center gap-2 mb-3 flex-wrap text-[10px]">
             <span className="px-2 py-0.5 rounded bg-red-50 text-red-600 font-bold border border-red-100">封板 {sentimentData.limit_up || tsSentiment.limit_up_count || 0}</span>
             <span className="px-2 py-0.5 rounded bg-yellow-50 text-yellow-600 font-bold border border-yellow-100">炸板 {sentimentData.broken || tsSentiment.broken_count || 0}</span>
             <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-600 font-bold border border-purple-100">最高 {sentimentData.highest_board || boardLadder.max_board || 0}板</span>
-            {boardLadder.ladder && Object.keys(boardLadder.ladder).length > 0 && (
-              <>
-                {Object.entries(boardLadder.ladder).sort((a, b) => Number(b[0]) - Number(a[0])).filter(([k]) => Number(k) >= 2).slice(0, 3).map(([level, count]) => (
-                  <span key={level} className="px-2 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">
-                    {level}→{Number(level)+1}板 {count}家
-                  </span>
-                ))}
-              </>
-            )}
+            {ladderList.length > 0 && ladderList.slice(0, 3).map((lv, idx) => (
+              <span key={idx} className="px-2 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">
+                {lv.level}板 {lv.count}只
+              </span>
+            ))}
           </div>
-          {/* Ladder grid */}
-          <div className="space-y-2 max-h-[280px] overflow-y-auto">
-            {ladderList.length > 0 ? ladderList.map((level, i) => (
-              <div key={i}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-bold text-red-500 w-8">{level.level}板</span>
-                  <span className="text-[10px] text-gray-400">({level.count}家)</span>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {(level.stocks || []).map((stock, j) => (
-                    <span key={j} className="px-2 py-1 rounded text-[10px] font-medium bg-red-50 text-red-700 border border-red-100 hover:bg-red-100 transition cursor-default"
-                      title={stock.code}>
-                      {stock.name}
-                    </span>
+          {/* Ladder table with full stock details */}
+          <div className="overflow-x-auto max-h-[280px] overflow-y-auto">
+            {ladderList.length > 0 ? (
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="text-gray-400 border-b border-gray-100">
+                    <th className="text-left p-1.5">股票</th>
+                    <th className="text-right p-1.5">现价</th>
+                    <th className="text-right p-1.5">涨跌幅</th>
+                    <th className="text-left p-1.5">标签</th>
+                    <th className="text-center p-1.5">状态</th>
+                    <th className="text-right p-1.5">换手%</th>
+                    <th className="text-right p-1.5">成交</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ladderList.map((level) => (
+                    (level.stocks || []).map((s, j) => (
+                      <tr key={`${level.level}-${j}`} className="border-b border-gray-50 hover:bg-red-50/30 transition">
+                        <td className="p-1.5">
+                          <div className="flex items-center gap-1">
+                            <span className="w-4 h-4 rounded bg-red-500 text-white flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                              {level.level}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-gray-800 font-medium truncate text-[11px]">{s.name}</div>
+                              <div className="text-[9px] text-gray-400">{s.code}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-1.5 text-right font-medium text-gray-800">{s.close ? s.close.toFixed(2) : '---'}</td>
+                        <td className="p-1.5 text-right">
+                          <span className={`font-medium ${(s.pct_chg || 0) >= 0 ? 'stock-up' : 'stock-down'}`}>
+                            {s.pct_chg ? (s.pct_chg >= 0 ? '+' : '') + s.pct_chg.toFixed(2) + '%' : '---'}
+                          </span>
+                        </td>
+                        <td className="p-1.5 text-left text-gray-500 truncate max-w-[60px]" title={s.tag}>{s.tag || '---'}</td>
+                        <td className="p-1.5 text-center">
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                            s.status?.includes('连板') ? 'bg-red-100 text-red-600 border border-red-200' :
+                            s.status === '炸板' ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {s.status || '封板'}
+                          </span>
+                        </td>
+                        <td className="p-1.5 text-right text-gray-600">{s.turnover_ratio ? s.turnover_ratio.toFixed(2) : '---'}</td>
+                        <td className="p-1.5 text-right text-gray-600">{s.amount ? formatAmount(s.amount) : '---'}</td>
+                      </tr>
+                    ))
                   ))}
-                </div>
-              </div>
-            )) : (
+                </tbody>
+              </table>
+            ) : (
               // Fallback: display from limitUps
               limitUps.length > 0 ? (
-                <div className="space-y-1">
-                  {limitUps.slice(0, 15).map((s, i) => (
-                    <div key={i} className="flex items-center justify-between p-1.5 rounded hover:bg-gray-50 transition text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded bg-red-50 text-red-500 flex items-center justify-center text-[10px] font-bold border border-red-100">
-                          {s.board_count || 1}
-                        </span>
-                        <span className="text-gray-800 font-medium">{s.name}</span>
-                      </div>
-                      <span className="stock-up text-[10px]">+{(s.change_pct || s.pct_chg)?.toFixed(2)}%</span>
-                    </div>
-                  ))}
-                </div>
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-white z-10">
+                    <tr className="text-gray-400 border-b border-gray-100">
+                      <th className="text-left p-1.5">股票</th>
+                      <th className="text-right p-1.5">现价</th>
+                      <th className="text-right p-1.5">涨跌幅</th>
+                      <th className="text-left p-1.5">标签</th>
+                      <th className="text-center p-1.5">状态</th>
+                      <th className="text-right p-1.5">换手%</th>
+                      <th className="text-right p-1.5">成交</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {limitUps.slice(0, 15).map((s, i) => (
+                      <tr key={i} className="border-b border-gray-50 hover:bg-red-50/30 transition">
+                        <td className="p-1.5">
+                          <div className="flex items-center gap-1">
+                            <span className="w-4 h-4 rounded bg-red-500 text-white flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                              {s.board_count || s.limit_times || 1}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-gray-800 font-medium truncate text-[11px]">{s.name}</div>
+                              <div className="text-[9px] text-gray-400">{s.code}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-1.5 text-right font-medium text-gray-800">{s.close ? s.close.toFixed(2) : '---'}</td>
+                        <td className="p-1.5 text-right">
+                          <span className="stock-up font-medium">+{(s.change_pct || s.pct_chg)?.toFixed(2)}%</span>
+                        </td>
+                        <td className="p-1.5 text-left text-gray-500 truncate max-w-[60px]">{s.tag || s.industry || '---'}</td>
+                        <td className="p-1.5 text-center">
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-red-100 text-red-600 border border-red-200">
+                            {s.board_count > 1 || s.limit_times > 1 ? `${s.board_count || s.limit_times}连板` : '封板'}
+                          </span>
+                        </td>
+                        <td className="p-1.5 text-right text-gray-600">{s.turnover_ratio ? s.turnover_ratio.toFixed(2) : '---'}</td>
+                        <td className="p-1.5 text-right text-gray-600">{s.amount ? formatAmount(s.amount) : '---'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               ) : (
                 <div className="text-center py-4 text-gray-400 text-xs">暂无连板天梯数据</div>
               )
