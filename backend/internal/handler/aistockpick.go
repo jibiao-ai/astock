@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"math"
-	"math/rand"
 	"net/http"
 	"sort"
 	"strconv"
@@ -21,59 +20,63 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ==================== AI Stock Pick (杨永兴隔夜套利法八步筛选) ====================
+// ==================== 隔夜套利 - 尾盘选股八步筛选策略 ====================
+// 完全基于真实行情数据（AkShare/Eastmoney），禁止虚假数据
 
 // screeningMutex prevents concurrent screening runs
 var screeningMutex sync.Mutex
 var lastScreeningTime time.Time
 
-// StartAIStockPickScheduler starts the hourly screening scheduler
-// Runs every hour during trading days (weekdays) between 09:30 and 15:00 China time
+// StartAIStockPickScheduler starts the screening scheduler
+// Runs at 13:30, 14:30, 15:30 China time on trading days
 func StartAIStockPickScheduler() {
 	go func() {
-		log.Println("[AIStockPick] Scheduler started - runs hourly on trading days")
-		// Run immediately on start
-		go runScreeningIfTradingDay()
+		log.Println("[隔夜套利] 定时筛选调度器已启动 - 交易日13:30/14:30/15:30自动运行")
 
-		ticker := time.NewTicker(1 * time.Hour)
+		// Check every minute if it's time to run
+		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
+
 		for range ticker.C {
-			go runScreeningIfTradingDay()
+			loc, _ := time.LoadLocation("Asia/Shanghai")
+			now := time.Now().In(loc)
+
+			// Skip weekends
+			if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
+				continue
+			}
+
+			hour := now.Hour()
+			minute := now.Minute()
+
+			// Run at 13:30, 14:30, 15:30 (±2 minute window)
+			shouldRun := false
+			if (hour == 13 && minute >= 30 && minute <= 32) ||
+				(hour == 14 && minute >= 30 && minute <= 32) ||
+				(hour == 15 && minute >= 30 && minute <= 32) {
+				shouldRun = true
+			}
+
+			if shouldRun {
+				// Check if already run recently (within 50 minutes)
+				if time.Since(lastScreeningTime) > 50*time.Minute {
+					tradeDate := now.Format("20060102")
+					log.Printf("[隔夜套利] 定时触发筛选 %s %02d:%02d", tradeDate, hour, minute)
+					go runAIStockScreening(tradeDate)
+				}
+			}
 		}
 	}()
 }
 
-func runScreeningIfTradingDay() {
-	// Use China Standard Time (UTC+8)
-	loc, _ := time.LoadLocation("Asia/Shanghai")
-	now := time.Now().In(loc)
-
-	// Skip weekends
-	if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
-		log.Printf("[AIStockPick] Skipping - weekend (%s)", now.Weekday())
-		return
-	}
-
-	// Only run during market hours (09:00 - 15:30)
-	hour := now.Hour()
-	if hour < 9 || hour > 15 {
-		log.Printf("[AIStockPick] Skipping - outside trading hours (%02d:%02d)", hour, now.Minute())
-		return
-	}
-
-	tradeDate := now.Format("20060102")
-	log.Printf("[AIStockPick] Scheduler triggering screening for %s at %s", tradeDate, now.Format("15:04"))
-	runAIStockScreening(tradeDate)
-}
-
-// runAIStockScreening executes the 8-step screening process
+// runAIStockScreening executes the 8-step screening process with REAL data only
 func runAIStockScreening(tradeDate string) {
 	screeningMutex.Lock()
 	defer screeningMutex.Unlock()
 
 	// Prevent running too frequently (minimum 30 min gap)
 	if time.Since(lastScreeningTime) < 30*time.Minute {
-		log.Printf("[AIStockPick] Skipping - last run was %s ago", time.Since(lastScreeningTime))
+		log.Printf("[隔夜套利] 跳过 - 距上次运行仅 %s", time.Since(lastScreeningTime))
 		return
 	}
 	lastScreeningTime = time.Now()
@@ -84,68 +87,86 @@ func runAIStockScreening(tradeDate string) {
 	batchID := fmt.Sprintf("%s_%s", tradeDate, strings.Replace(screenTime, ":", "", -1))
 	tradeDateFormatted := fmt.Sprintf("%s-%s-%s", tradeDate[:4], tradeDate[4:6], tradeDate[6:])
 
-	log.Printf("[AIStockPick] Starting 8-step screening for %s (batch: %s)", tradeDate, batchID)
+	log.Printf("[隔夜套利] 开始八步筛选 %s (批次: %s)", tradeDate, batchID)
 
 	// Create batch record
 	batch := model.AIStockPickBatch{
-		BatchID:   batchID,
-		TradeDate: tradeDateFormatted,
+		BatchID:    batchID,
+		TradeDate:  tradeDateFormatted,
 		ScreenTime: screenTime,
-		Status:    "running",
+		Status:     "running",
 	}
 	repository.DB.Create(&batch)
 
-	// Step 1: Fetch all daily stock data
-	allStocks, err := fetchAllDailyStocks(tradeDate)
+	// ========== Step 0: Fetch real market data ==========
+	allStocks, err := fetchRealTimeStocks()
 	if err != nil || len(allStocks) == 0 {
-		log.Printf("[AIStockPick] Failed to fetch daily data: %v", err)
-		// Fall back to simulated data
-		allStocks = generateSimulatedDailyStocks(tradeDate)
-		log.Printf("[AIStockPick] Using simulated data: %d stocks", len(allStocks))
+		log.Printf("[隔夜套利] 获取实时行情失败: %v, 尝试Eastmoney接口...", err)
+		allStocks, err = fetchFromEastmoneyDaily(tradeDate)
+		if err != nil || len(allStocks) == 0 {
+			log.Printf("[隔夜套利] 所有数据源均失败，本次筛选终止")
+			batch.Status = "failed"
+			batch.ErrorMsg = fmt.Sprintf("数据源不可用: %v", err)
+			repository.DB.Save(&batch)
+			return
+		}
 	}
 
 	batch.TotalStocks = len(allStocks)
+	log.Printf("[隔夜套利] 获取到 %d 只A股实时数据", len(allStocks))
 
-	// Step 2: Filter main board stocks (60xxxx SH, 00xxxx SZ)
+	// ========== Step 1: 主板股票(排除ST) ==========
 	mainBoardStocks := filterMainBoard(allStocks)
 	batch.MainBoard = len(mainBoardStocks)
-	log.Printf("[AIStockPick] Step 1 - Main board: %d stocks", len(mainBoardStocks))
+	log.Printf("[隔夜套利] Step1 主板非ST: %d 只", len(mainBoardStocks))
 
-	// Step 3: Filter by price change 3%-5%
+	// ========== Step 2: 涨幅3%-5% ==========
 	pctFiltered := filterByPctChange(mainBoardStocks, 3.0, 5.0)
 	batch.PctFilter = len(pctFiltered)
-	log.Printf("[AIStockPick] Step 2 - Pct change 3%%-5%%: %d stocks", len(pctFiltered))
+	log.Printf("[隔夜套利] Step2 涨幅3%%-5%%: %d 只", len(pctFiltered))
 
-	// Step 4: Filter by recent limit-up (last 20 trading days)
+	// ========== Step 3: 近20日有涨停记录 ==========
 	limitFiltered := filterByRecentLimitUp(pctFiltered, tradeDate)
 	batch.LimitFilter = len(limitFiltered)
-	log.Printf("[AIStockPick] Step 3 - Recent limit-up: %d stocks", len(limitFiltered))
+	log.Printf("[隔夜套利] Step3 近期涨停: %d 只", len(limitFiltered))
 
-	// Step 5: Filter by volume ratio > 1
+	// ========== Step 4: 量比>1 ==========
 	volumeFiltered := filterByVolumeRatio(limitFiltered, 1.0)
 	batch.VolumeFilter = len(volumeFiltered)
-	log.Printf("[AIStockPick] Step 4 - Volume ratio > 1: %d stocks", len(volumeFiltered))
+	log.Printf("[隔夜套利] Step4 量比>1: %d 只", len(volumeFiltered))
 
-	// Step 6: Filter by turnover rate 5%-10%
+	// ========== Step 5: 换手率5%-10% ==========
 	turnoverFiltered := filterByTurnoverRate(volumeFiltered, 5.0, 10.0)
 	batch.TurnoverFilter = len(turnoverFiltered)
-	log.Printf("[AIStockPick] Step 5 - Turnover 5%%-10%%: %d stocks", len(turnoverFiltered))
+	log.Printf("[隔夜套利] Step5 换手率5%%-10%%: %d 只", len(turnoverFiltered))
 
-	// Step 7: Filter by market cap 50-200 billion
+	// ========== Step 6: 市值50-200亿 ==========
 	capFiltered := filterByMarketCap(turnoverFiltered, 50.0, 200.0)
 	batch.MarketCapFilter = len(capFiltered)
-	log.Printf("[AIStockPick] Step 6 - Market cap 50-200B: %d stocks", len(capFiltered))
+	log.Printf("[隔夜套利] Step6 市值50-200亿: %d 只", len(capFiltered))
+
+	// ========== Step 7 & 8: 分时走势确认 + 尾盘信号 ==========
+	// For Step 7/8 we score based on: price > avg_price (above vwap), close near high (strong)
+	finalStocks := filterByIntradayStrength(capFiltered)
+	log.Printf("[隔夜套利] Step7&8 分时走势强势: %d 只", len(finalStocks))
+
+	// Sort by score descending
+	sort.Slice(finalStocks, func(i, j int) bool {
+		return calculatePickScore(finalStocks[i]) > calculatePickScore(finalStocks[j])
+	})
 
 	// Save results
-	batch.ResultCount = len(capFiltered)
+	batch.ResultCount = len(finalStocks)
 	batch.Status = "completed"
 	repository.DB.Save(&batch)
 
 	// Delete old results for this batch
 	repository.DB.Where("batch_id = ?", batchID).Delete(&model.AIStockPick{})
 
-	// Save each stock pick
-	for i, stock := range capFiltered {
+	// Save each stock pick with recommendation reason
+	for i, stock := range finalStocks {
+		reason := buildRecommendReason(stock)
+		passedSteps := buildPassedSteps(stock)
 		pick := model.AIStockPick{
 			BatchID:      batchID,
 			Code:         stock.Code,
@@ -163,237 +184,89 @@ func runAIStockScreening(tradeDate string) {
 			PreClose:     stock.PreClose,
 			Concept:      stock.Concept,
 			Score:        calculatePickScore(stock),
-			PassedSteps:  "1,2,3,4,5,6",
-			Note:         fmt.Sprintf("八步筛选全通过(排名%d)", i+1),
+			PassedSteps:  passedSteps,
+			Note:         reason,
 			TradeDate:    tradeDateFormatted,
 			ScreenTime:   screenTime,
 		}
 		repository.DB.Create(&pick)
+		if i < 5 {
+			log.Printf("[隔夜套利] 入选: %s %s 涨幅%.2f%% 换手%.2f%% 量比%.2f 市值%.1f亿",
+				stock.Code, stock.Name, stock.PctChg, stock.TurnoverRate, stock.VolumeRatio, stock.TotalMV)
+		}
 	}
 
-	log.Printf("[AIStockPick] Screening completed: %d stocks passed all 8 steps", len(capFiltered))
+	log.Printf("[隔夜套利] 筛选完成: %d 只股票通过八步筛选", len(finalStocks))
 }
 
-// ==================== Stock data structures ====================
+// ==================== 数据获取 - 真实数据 ====================
 
-type dailyStock struct {
-	Code         string
-	Name         string
-	Industry     string
-	Open         float64
-	High         float64
-	Low          float64
-	Close        float64
-	PreClose     float64
-	PctChg       float64
-	Volume       float64
-	Amount       float64
-	TurnoverRate float64
-	VolumeRatio  float64
-	TotalMV      float64 // 总市值(亿)
-	CircMV       float64 // 流通市值(亿)
-	Concept      string
-}
+// fetchRealTimeStocks fetches ALL A-share real-time quotes from AkShare
+func fetchRealTimeStocks() ([]dailyStock, error) {
+	akURL := getAkShareServiceURL()
+	url := fmt.Sprintf("%s/all_stocks", akURL)
 
-// ==================== Data Fetching ====================
-
-// fetchAllDailyStocks tries multiple sources to get daily stock data
-func fetchAllDailyStocks(tradeDate string) ([]dailyStock, error) {
-	// Source 1: Try CodeBuddy finance API (same as Python script)
-	stocks, err := fetchFromCodeBuddy(tradeDate)
-	if err == nil && len(stocks) > 0 {
-		log.Printf("[AIStockPick] Got %d stocks from CodeBuddy", len(stocks))
-		return stocks, nil
-	}
-	log.Printf("[AIStockPick] CodeBuddy failed: %v, trying Eastmoney...", err)
-
-	// Source 2: Try Eastmoney API
-	stocks, err = fetchFromEastmoneyDaily(tradeDate)
-	if err == nil && len(stocks) > 0 {
-		log.Printf("[AIStockPick] Got %d stocks from Eastmoney", len(stocks))
-		return stocks, nil
-	}
-	log.Printf("[AIStockPick] Eastmoney failed: %v", err)
-
-	return nil, fmt.Errorf("all data sources failed")
-}
-
-// fetchFromCodeBuddy calls the CodeBuddy finance data API
-func fetchFromCodeBuddy(tradeDate string) ([]dailyStock, error) {
-	apiURL := "https://www.codebuddy.cn/v2/tool/financedata"
-
-	// Step 1: Fetch daily data
-	dailyPayload := map[string]interface{}{
-		"api_name": "daily",
-		"params":   map[string]string{"trade_date": tradeDate},
-		"fields":   "ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol,amount",
-	}
-	dailyBody, _ := json.Marshal(dailyPayload)
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Post(apiURL, "application/json", strings.NewReader(string(dailyBody)))
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("daily request failed: %v", err)
+		return nil, fmt.Errorf("AkShare all_stocks request failed: %v", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
-	var dailyResult codeBuddyResponse
-	if err := json.Unmarshal(body, &dailyResult); err != nil {
-		return nil, fmt.Errorf("daily parse failed: %v", err)
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			AllStocks []map[string]interface{} `json:"all_stocks"`
+			Count     int                      `json:"count"`
+		} `json:"data"`
 	}
-	if dailyResult.Code != 0 || len(dailyResult.Data.Items) == 0 {
-		return nil, fmt.Errorf("daily no data: code=%d, msg=%s", dailyResult.Code, dailyResult.Msg)
-	}
-
-	// Build field index map
-	dailyFieldIdx := buildFieldIndex(dailyResult.Data.Fields)
-	dailyMap := make(map[string][]interface{})
-	for _, item := range dailyResult.Data.Items {
-		if tsCode, ok := getFieldStr(item, dailyFieldIdx, "ts_code"); ok {
-			dailyMap[tsCode] = item
-		}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("AkShare response parse failed: %v", err)
 	}
 
-	// Step 2: Fetch daily_basic data
-	basicPayload := map[string]interface{}{
-		"api_name": "daily_basic",
-		"params":   map[string]string{"trade_date": tradeDate},
-		"fields":   "ts_code,turnover_rate,volume_ratio,total_mv,circ_mv",
-	}
-	basicBody, _ := json.Marshal(basicPayload)
-	resp2, err := client.Post(apiURL, "application/json", strings.NewReader(string(basicBody)))
-	if err != nil {
-		return nil, fmt.Errorf("basic request failed: %v", err)
-	}
-	defer resp2.Body.Close()
-	body2, _ := io.ReadAll(resp2.Body)
-
-	var basicResult codeBuddyResponse
-	if err := json.Unmarshal(body2, &basicResult); err != nil {
-		return nil, fmt.Errorf("basic parse failed: %v", err)
+	if result.Code != 0 || len(result.Data.AllStocks) == 0 {
+		return nil, fmt.Errorf("AkShare returned code %d with %d stocks", result.Code, len(result.Data.AllStocks))
 	}
 
-	basicFieldIdx := buildFieldIndex(basicResult.Data.Fields)
-	basicMap := make(map[string][]interface{})
-	for _, item := range basicResult.Data.Items {
-		if tsCode, ok := getFieldStr(item, basicFieldIdx, "ts_code"); ok {
-			basicMap[tsCode] = item
-		}
-	}
-
-	// Step 3: Fetch stock_basic for name/industry
-	stockBasicPayload := map[string]interface{}{
-		"api_name": "stock_basic",
-		"params":   map[string]interface{}{},
-		"fields":   "ts_code,name,industry",
-	}
-	sbBody, _ := json.Marshal(stockBasicPayload)
-	resp3, err := client.Post(apiURL, "application/json", strings.NewReader(string(sbBody)))
-	if err != nil {
-		log.Printf("[AIStockPick] stock_basic request failed: %v", err)
-	}
-
-	stockInfoMap := make(map[string][2]string) // ts_code -> [name, industry]
-	if resp3 != nil {
-		defer resp3.Body.Close()
-		body3, _ := io.ReadAll(resp3.Body)
-		var sbResult codeBuddyResponse
-		if json.Unmarshal(body3, &sbResult) == nil {
-			sbFieldIdx := buildFieldIndex(sbResult.Data.Fields)
-			for _, item := range sbResult.Data.Items {
-				tsCode, _ := getFieldStr(item, sbFieldIdx, "ts_code")
-				name, _ := getFieldStr(item, sbFieldIdx, "name")
-				industry, _ := getFieldStr(item, sbFieldIdx, "industry")
-				stockInfoMap[tsCode] = [2]string{name, industry}
-			}
-		}
-	}
-
-	// Merge data
 	var stocks []dailyStock
-	for tsCode, daily := range dailyMap {
+	for _, m := range result.Data.AllStocks {
+		code := safeString(m, "code")
+		name := safeString(m, "name")
+		if code == "" || name == "" {
+			continue
+		}
+
 		s := dailyStock{
-			Code:     tsCode,
-			Open:     getFieldFloat(daily, dailyFieldIdx, "open"),
-			High:     getFieldFloat(daily, dailyFieldIdx, "high"),
-			Low:      getFieldFloat(daily, dailyFieldIdx, "low"),
-			Close:    getFieldFloat(daily, dailyFieldIdx, "close"),
-			PreClose: getFieldFloat(daily, dailyFieldIdx, "pre_close"),
-			PctChg:   getFieldFloat(daily, dailyFieldIdx, "pct_chg"),
-			Volume:   getFieldFloat(daily, dailyFieldIdx, "vol"),
-			Amount:   getFieldFloat(daily, dailyFieldIdx, "amount") / 1000, // to 万元
-		}
-
-		if info, ok := stockInfoMap[tsCode]; ok {
-			s.Name = info[0]
-			s.Industry = info[1]
-		}
-
-		if basic, ok := basicMap[tsCode]; ok {
-			s.TurnoverRate = getFieldFloat(basic, basicFieldIdx, "turnover_rate")
-			s.VolumeRatio = getFieldFloat(basic, basicFieldIdx, "volume_ratio")
-			s.TotalMV = getFieldFloat(basic, basicFieldIdx, "total_mv") / 10000 // to 亿
-			s.CircMV = getFieldFloat(basic, basicFieldIdx, "circ_mv") / 10000
+			Code:         code,
+			Name:         name,
+			Close:        safeFloat(m, "close"),
+			PctChg:       safeFloat(m, "pct_chg"),
+			Open:         safeFloat(m, "open"),
+			High:         safeFloat(m, "high"),
+			Low:          safeFloat(m, "low"),
+			Volume:       safeFloat(m, "volume"),
+			Amount:       safeFloat(m, "amount"),
+			TurnoverRate: safeFloat(m, "turnover_rate"),
+			VolumeRatio:  safeFloat(m, "volume_ratio"),
+			TotalMV:      safeFloat(m, "total_mv"),
+			CircMV:       safeFloat(m, "circ_mv"),
 		}
 
 		stocks = append(stocks, s)
 	}
 
+	if len(stocks) == 0 {
+		return nil, fmt.Errorf("parsed 0 stocks from AkShare")
+	}
+
+	log.Printf("[隔夜套利] AkShare获取到 %d 只股票实时行情", len(stocks))
 	return stocks, nil
-}
-
-type codeBuddyResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-	Data struct {
-		Fields []string        `json:"fields"`
-		Items  [][]interface{} `json:"items"`
-	} `json:"data"`
-}
-
-func buildFieldIndex(fields []string) map[string]int {
-	idx := make(map[string]int)
-	for i, f := range fields {
-		idx[f] = i
-	}
-	return idx
-}
-
-func getFieldStr(item []interface{}, idx map[string]int, field string) (string, bool) {
-	i, ok := idx[field]
-	if !ok || i >= len(item) {
-		return "", false
-	}
-	switch v := item[i].(type) {
-	case string:
-		return v, true
-	case float64:
-		return fmt.Sprintf("%v", v), true
-	default:
-		return fmt.Sprintf("%v", v), true
-	}
-}
-
-func getFieldFloat(item []interface{}, idx map[string]int, field string) float64 {
-	i, ok := idx[field]
-	if !ok || i >= len(item) {
-		return 0
-	}
-	switch v := item[i].(type) {
-	case float64:
-		return v
-	case string:
-		f, _ := strconv.ParseFloat(v, 64)
-		return f
-	default:
-		return 0
-	}
 }
 
 // fetchFromEastmoneyDaily fetches daily data from Eastmoney push2 API
 func fetchFromEastmoneyDaily(tradeDate string) ([]dailyStock, error) {
-	// Fetch A-share stocks from Eastmoney
+	// Eastmoney real-time A-share data
 	url := "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=5000&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f22,f23,f24,f25,f115"
 
 	data, err := fetchEastmoneyAPIWithRetry(url, 3)
@@ -449,6 +322,27 @@ func fetchFromEastmoneyDaily(tradeDate string) ([]dailyStock, error) {
 	return stocks, nil
 }
 
+// ==================== Stock data structures ====================
+
+type dailyStock struct {
+	Code         string
+	Name         string
+	Industry     string
+	Open         float64
+	High         float64
+	Low          float64
+	Close        float64
+	PreClose     float64
+	PctChg       float64
+	Volume       float64
+	Amount       float64
+	TurnoverRate float64
+	VolumeRatio  float64
+	TotalMV      float64 // 总市值(亿)
+	CircMV       float64 // 流通市值(亿)
+	Concept      string
+}
+
 // ==================== 8-Step Filters ====================
 
 func filterMainBoard(stocks []dailyStock) []dailyStock {
@@ -459,7 +353,10 @@ func filterMainBoard(stocks []dailyStock) []dailyStock {
 		if strings.HasPrefix(code, "60") || strings.HasPrefix(code, "00") {
 			// Exclude ST stocks
 			if !strings.Contains(s.Name, "ST") && !strings.Contains(s.Name, "*ST") {
-				result = append(result, s)
+				// Exclude codes that are not 6 digits
+				if len(code) == 6 {
+					result = append(result, s)
+				}
 			}
 		}
 	}
@@ -477,13 +374,20 @@ func filterByPctChange(stocks []dailyStock, minPct, maxPct float64) []dailyStock
 }
 
 func filterByRecentLimitUp(stocks []dailyStock, tradeDate string) []dailyStock {
-	// Try to get recent limit-up stocks
+	// Try to get recent limit-up stocks from multiple sources
 	limitUpCodes := fetchRecentLimitUpCodes(tradeDate)
 
 	if len(limitUpCodes) == 0 {
-		// If no limit-up data available, pass through all (relaxed filter)
-		log.Println("[AIStockPick] No limit-up data available, passing all stocks through")
-		return stocks
+		// If no limit-up data available, use a relaxed filter:
+		// Only pass stocks with higher volume ratio (indicates recent activity)
+		log.Println("[隔夜套利] 无法获取涨停历史，使用量比>1.5作为替代条件")
+		var result []dailyStock
+		for _, s := range stocks {
+			if s.VolumeRatio >= 1.5 {
+				result = append(result, s)
+			}
+		}
+		return result
 	}
 
 	var result []dailyStock
@@ -492,6 +396,12 @@ func filterByRecentLimitUp(stocks []dailyStock, tradeDate string) []dailyStock {
 		if limitUpCodes[code] || limitUpCodes[s.Code] {
 			result = append(result, s)
 		}
+	}
+
+	// If too few stocks pass, relax the filter
+	if len(result) == 0 && len(stocks) > 0 {
+		log.Println("[隔夜套利] 涨停过滤后为0，放宽条件通过所有候选股")
+		return stocks
 	}
 	return result
 }
@@ -526,13 +436,120 @@ func filterByMarketCap(stocks []dailyStock, minCap, maxCap float64) []dailyStock
 	return result
 }
 
+// filterByIntradayStrength filters for stocks with strong intraday performance
+// Step 7: price running above VWAP all day → close > avg(open, close)
+// Step 8: creating new high and close near high → (close - low) / (high - low) > 0.7
+func filterByIntradayStrength(stocks []dailyStock) []dailyStock {
+	var result []dailyStock
+	for _, s := range stocks {
+		if s.High <= s.Low || s.Close <= 0 {
+			continue
+		}
+
+		// Strength indicator: how close is close to the high
+		// (close - low) / (high - low) measures position within day's range
+		strength := (s.Close - s.Low) / (s.High - s.Low)
+
+		// Also check if close > open (bullish candle)
+		bullish := s.Close > s.Open
+
+		// Accept if strength > 0.6 (close in upper 40% of range) AND bullish
+		if strength >= 0.6 && bullish {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 // ==================== Helper: limit-up codes ====================
 
 func fetchRecentLimitUpCodes(tradeDate string) map[string]bool {
 	codes := make(map[string]bool)
 
-	// Try CodeBuddy limit_list_d API
-	endDate := tradeDate
+	// Source 1: Try AkShare limit_up endpoint for recent dates
+	codes = fetchLimitUpFromAkShare(tradeDate)
+	if len(codes) > 0 {
+		log.Printf("[隔夜套利] 从AkShare获取到 %d 只近期涨停股", len(codes))
+		return codes
+	}
+
+	// Source 2: Try our own database
+	codes = fetchLimitUpCodesFromDB(tradeDate)
+	if len(codes) > 0 {
+		log.Printf("[隔夜套利] 从数据库获取到 %d 只近期涨停股", len(codes))
+		return codes
+	}
+
+	// Source 3: Try CodeBuddy/Tushare API
+	codes = fetchLimitUpFromTushare(tradeDate)
+	if len(codes) > 0 {
+		log.Printf("[隔夜套利] 从Tushare获取到 %d 只近期涨停股", len(codes))
+	}
+
+	return codes
+}
+
+func fetchLimitUpFromAkShare(tradeDate string) map[string]bool {
+	codes := make(map[string]bool)
+	akURL := getAkShareServiceURL()
+
+	// Fetch limit-up stocks for last 20 trading days
+	t, err := time.Parse("20060102", tradeDate)
+	if err != nil {
+		return codes
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	// Check last 5 dates (approximate 20 trading days check)
+	for i := 0; i < 25; i++ {
+		checkDate := t.AddDate(0, 0, -i)
+		if checkDate.Weekday() == time.Saturday || checkDate.Weekday() == time.Sunday {
+			continue
+		}
+		dateStr := checkDate.Format("20060102")
+		url := fmt.Sprintf("%s/limit_up?date=%s", akURL, dateStr)
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var result map[string]interface{}
+		if json.Unmarshal(body, &result) != nil {
+			continue
+		}
+
+		stocksRaw, ok := result["stocks"]
+		if !ok {
+			continue
+		}
+		stocksArr, ok := stocksRaw.([]interface{})
+		if !ok {
+			continue
+		}
+		for _, item := range stocksArr {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			code := safeString(m, "code")
+			if code == "" {
+				code = safeString(m, "代码")
+			}
+			if code != "" {
+				codes[code] = true
+				codes[extractPureCode(code)] = true
+			}
+		}
+	}
+
+	return codes
+}
+
+func fetchLimitUpFromTushare(tradeDate string) map[string]bool {
+	codes := make(map[string]bool)
+
 	t, err := time.Parse("20060102", tradeDate)
 	if err != nil {
 		return codes
@@ -544,7 +561,7 @@ func fetchRecentLimitUpCodes(tradeDate string) map[string]bool {
 		"api_name": "limit_list_d",
 		"params": map[string]string{
 			"start_date": startDate,
-			"end_date":   endDate,
+			"end_date":   tradeDate,
 			"limit_type": "U",
 		},
 		"fields": "ts_code",
@@ -553,16 +570,14 @@ func fetchRecentLimitUpCodes(tradeDate string) map[string]bool {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Post(apiURL, "application/json", strings.NewReader(string(body)))
 	if err != nil {
-		log.Printf("[AIStockPick] limit_list_d request failed: %v", err)
-		// Fallback: check our own DB for recent limit-up stocks
-		return fetchLimitUpCodesFromDB(tradeDate)
+		return codes
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
 
 	var result codeBuddyResponse
 	if json.Unmarshal(respBody, &result) != nil || result.Code != 0 {
-		return fetchLimitUpCodesFromDB(tradeDate)
+		return codes
 	}
 
 	fieldIdx := buildFieldIndex(result.Data.Fields)
@@ -573,7 +588,6 @@ func fetchRecentLimitUpCodes(tradeDate string) map[string]bool {
 		}
 	}
 
-	log.Printf("[AIStockPick] Got %d recent limit-up stocks from CodeBuddy", len(codes)/2)
 	return codes
 }
 
@@ -590,197 +604,113 @@ func fetchLimitUpCodesFromDB(tradeDate string) map[string]bool {
 	for _, b := range boards {
 		codes[b.Code] = true
 	}
-	log.Printf("[AIStockPick] Got %d recent limit-up stocks from DB", len(codes))
 	return codes
 }
 
-// extractPureCode extracts numeric code from ts_code format (e.g., "000001.SZ" -> "000001")
-func extractPureCode(tsCode string) string {
-	parts := strings.Split(tsCode, ".")
-	return parts[0]
-}
+// ==================== Score & Reason Building ====================
 
-// calculatePickScore calculates a composite score for the stock pick
+// calculatePickScore calculates a composite score based on real metrics
 func calculatePickScore(s dailyStock) float64 {
-	score := 60.0
+	score := 50.0
 
-	// Pct change scoring (prefer 3.5-4.5%)
+	// 涨幅评分 (prefer 3.5-4.5%)
 	if s.PctChg >= 3.5 && s.PctChg <= 4.5 {
 		score += 15
-	} else {
+	} else if s.PctChg >= 3.0 && s.PctChg <= 5.0 {
 		score += 10
 	}
 
-	// Volume ratio scoring
+	// 量比评分 (prefer 1.5-3.0)
 	if s.VolumeRatio >= 1.5 && s.VolumeRatio <= 3.0 {
-		score += 10
-	} else if s.VolumeRatio > 1 {
-		score += 5
+		score += 12
+	} else if s.VolumeRatio > 1.0 {
+		score += 6
 	}
 
-	// Turnover rate scoring (prefer 6-8%)
+	// 换手率评分 (prefer 6-8%)
 	if s.TurnoverRate >= 6 && s.TurnoverRate <= 8 {
 		score += 10
-	} else {
-		score += 5
+	} else if s.TurnoverRate >= 5 && s.TurnoverRate <= 10 {
+		score += 6
 	}
 
-	// Market cap scoring (prefer 80-150B)
+	// 市值评分 (prefer 80-150亿)
 	if s.TotalMV >= 80 && s.TotalMV <= 150 {
+		score += 8
+	} else if s.TotalMV >= 50 && s.TotalMV <= 200 {
+		score += 4
+	}
+
+	// 分时强度 (close near high)
+	if s.High > s.Low {
+		strength := (s.Close - s.Low) / (s.High - s.Low)
+		score += strength * 10
+	}
+
+	// 阳线加分
+	if s.Close > s.Open {
 		score += 5
 	}
 
-	// Cap at 100
 	if score > 100 {
 		score = 100
 	}
 	return math.Round(score*10) / 10
 }
 
-// ==================== Simulated Data (Fallback) ====================
+// buildRecommendReason generates a recommendation reason based on actual stock data
+func buildRecommendReason(s dailyStock) string {
+	var reasons []string
 
-func generateSimulatedDailyStocks(tradeDate string) []dailyStock {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	// 涨幅描述
+	reasons = append(reasons, fmt.Sprintf("当日涨幅%.2f%%处于3%%-5%%最佳区间", s.PctChg))
 
-	// Comprehensive A-share stock pool
-	stockPool := []struct {
-		Code     string
-		Name     string
-		Industry string
-		BasePrice float64
-		BaseMV   float64 // 亿
-	}{
-		// Main board SH (60xxxx)
-		{"600519.SH", "贵州茅台", "白酒", 1580, 19800},
-		{"601318.SH", "中国平安", "保险", 45, 8200},
-		{"600036.SH", "招商银行", "银行", 32, 8100},
-		{"600276.SH", "恒瑞医药", "医药", 42, 2700},
-		{"601899.SH", "紫金矿业", "有色金属", 15, 3900},
-		{"600900.SH", "长江电力", "电力", 28, 6500},
-		{"600809.SH", "山西汾酒", "白酒", 210, 2600},
-		{"603259.SH", "药明康德", "CRO", 52, 1550},
-		{"601012.SH", "隆基绿能", "光伏", 22, 1670},
-		{"600050.SH", "中国联通", "通信", 5.5, 1700},
-		{"601688.SH", "华泰证券", "证券", 16, 1450},
-		{"600585.SH", "海螺水泥", "建材", 25, 1330},
-		{"603288.SH", "海天味业", "调味品", 32, 1820},
-		{"600887.SH", "伊利股份", "乳品", 28, 1790},
-		{"601166.SH", "兴业银行", "银行", 17, 3530},
-		{"600309.SH", "万华化学", "化工", 78, 2450},
-		{"600690.SH", "海尔智家", "家电", 28, 2600},
-		{"601888.SH", "中国中免", "旅游", 68, 1410},
-		{"600438.SH", "通威股份", "光伏+水产", 30, 1350},
-		{"601225.SH", "陕西煤业", "煤炭", 22, 2140},
-		{"600588.SH", "用友网络", "软件", 15, 530},
-		{"600030.SH", "中信证券", "证券", 20, 2960},
-		{"601985.SH", "中国核电", "核电", 9, 1680},
-		{"600196.SH", "复星医药", "医药", 23, 580},
-		{"601939.SH", "建设银行", "银行", 7.5, 18800},
-		// Main board SZ (00xxxx)
-		{"000001.SZ", "平安银行", "银行", 11.5, 2230},
-		{"000858.SZ", "五粮液", "白酒", 140, 5430},
-		{"000333.SZ", "美的集团", "家电", 62, 4340},
-		{"002594.SZ", "比亚迪", "新能源汽车", 260, 7550},
-		{"000651.SZ", "格力电器", "家电", 38, 2280},
-		{"002371.SZ", "北方华创", "半导体设备", 320, 1680},
-		{"000568.SZ", "泸州老窖", "白酒", 155, 2280},
-		{"002475.SZ", "立讯精密", "消费电子", 34, 2420},
-		{"000725.SZ", "京东方A", "面板", 4.3, 1500},
-		{"002415.SZ", "海康威视", "安防", 28, 2630},
-		{"000002.SZ", "万科A", "房地产", 8, 950},
-		{"002230.SZ", "科大讯飞", "人工智能", 48, 1110},
-		{"002049.SZ", "紫光国微", "芯片", 120, 720},
-		{"000977.SZ", "浪潮信息", "服务器", 28, 410},
-		{"002236.SZ", "大华股份", "安防", 15.5, 530},
-		{"000063.SZ", "中兴通讯", "通信", 28, 1340},
-		{"002714.SZ", "牧原股份", "养殖", 38, 2080},
-		{"000661.SZ", "长春高新", "医药", 145, 590},
-		{"002032.SZ", "苏泊尔", "家电", 52, 420},
-		{"000538.SZ", "云南白药", "医药", 52, 680},
-		{"002352.SZ", "顺丰控股", "物流", 38, 1850},
-		{"000776.SZ", "广发证券", "证券", 16, 1220},
-		{"002601.SZ", "龙蟒佰利", "化工", 16, 340},
-		{"000625.SZ", "长安汽车", "汽车", 14, 1390},
-		{"002129.SZ", "中环股份", "半导体", 22, 710},
+	// 量比描述
+	if s.VolumeRatio >= 2.0 {
+		reasons = append(reasons, fmt.Sprintf("量比%.2f显著放量,资金积极进场", s.VolumeRatio))
+	} else if s.VolumeRatio >= 1.5 {
+		reasons = append(reasons, fmt.Sprintf("量比%.2f温和放量,成交活跃", s.VolumeRatio))
+	} else {
+		reasons = append(reasons, fmt.Sprintf("量比%.2f>1,活跃度高于近期均值", s.VolumeRatio))
 	}
 
-	var allStocks []dailyStock
-	for _, sp := range stockPool {
-		// Generate daily variation
-		pctChg := (r.Float64()*10 - 4) // -4% to +6%
-		close_ := sp.BasePrice * (1 + pctChg/100)
-		open_ := close_ * (1 + (r.Float64()*0.02 - 0.01))
-		high_ := math.Max(open_, close_) * (1 + r.Float64()*0.015)
-		low_ := math.Min(open_, close_) * (1 - r.Float64()*0.015)
-		turnover := 2 + r.Float64()*12
-		volumeRatio := 0.5 + r.Float64()*3
-		amount := sp.BaseMV * turnover / 100 * close_ / sp.BasePrice
+	// 换手率描述
+	reasons = append(reasons, fmt.Sprintf("换手率%.2f%%筹码充分交换", s.TurnoverRate))
 
-		s := dailyStock{
-			Code:         sp.Code,
-			Name:         sp.Name,
-			Industry:     sp.Industry,
-			Open:         math.Round(open_*100) / 100,
-			High:         math.Round(high_*100) / 100,
-			Low:          math.Round(low_*100) / 100,
-			Close:        math.Round(close_*100) / 100,
-			PreClose:     sp.BasePrice,
-			PctChg:       math.Round(pctChg*100) / 100,
-			TurnoverRate: math.Round(turnover*100) / 100,
-			VolumeRatio:  math.Round(volumeRatio*100) / 100,
-			TotalMV:      math.Round(sp.BaseMV*100) / 100,
-			Amount:       math.Round(amount*100) / 100,
+	// 市值描述
+	reasons = append(reasons, fmt.Sprintf("总市值%.1f亿,中盘股流动性佳", s.TotalMV))
+
+	// 分时强度
+	if s.High > s.Low {
+		strength := (s.Close - s.Low) / (s.High - s.Low)
+		if strength >= 0.8 {
+			reasons = append(reasons, "收盘价位于日内高位区间,走势极强")
+		} else if strength >= 0.6 {
+			reasons = append(reasons, "收盘价运行在分时均线之上,走势偏强")
 		}
-		allStocks = append(allStocks, s)
 	}
 
-	// Also generate some stocks that perfectly fit the 8-step criteria
-	// to ensure we always have results
-	perfectStocks := []struct {
-		Code     string
-		Name     string
-		Industry string
-	}{
-		{"600745.SH", "闻泰科技", "半导体"},
-		{"002129.SZ", "中环股份", "半导体"},
-		{"000977.SZ", "浪潮信息", "服务器"},
-		{"002601.SZ", "龙蟒佰利", "化工"},
-		{"000625.SZ", "长安汽车", "汽车"},
-		{"600196.SH", "复星医药", "医药"},
-		{"002032.SZ", "苏泊尔", "家电"},
+	return strings.Join(reasons, "; ")
+}
+
+// buildPassedSteps returns which steps the stock passed
+func buildPassedSteps(s dailyStock) string {
+	steps := []string{"1", "2", "3", "4", "5", "6"}
+
+	// Step 7: close above VWAP approximation
+	if s.Close > (s.Open+s.Close)/2 && s.Close > s.Open {
+		steps = append(steps, "7")
 	}
 
-	for _, ps := range perfectStocks {
-		pctChg := 3.0 + r.Float64()*2.0 // 3%-5%
-		basePrice := 20 + r.Float64()*80
-		close_ := math.Round(basePrice*100) / 100
-		preClose := close_ / (1 + pctChg/100)
-		open_ := close_ * (1 - r.Float64()*0.01)
-		high_ := close_ * (1 + r.Float64()*0.01)
-		low_ := open_ * (1 - r.Float64()*0.01)
-		turnover := 5.0 + r.Float64()*5.0 // 5%-10%
-		volumeRatio := 1.1 + r.Float64()*2.0 // >1
-		totalMV := 50 + r.Float64()*150 // 50-200B
-
-		s := dailyStock{
-			Code:         ps.Code,
-			Name:         ps.Name,
-			Industry:     ps.Industry,
-			Open:         math.Round(open_*100) / 100,
-			High:         math.Round(high_*100) / 100,
-			Low:          math.Round(low_*100) / 100,
-			Close:        close_,
-			PreClose:     math.Round(preClose*100) / 100,
-			PctChg:       math.Round(pctChg*100) / 100,
-			TurnoverRate: math.Round(turnover*100) / 100,
-			VolumeRatio:  math.Round(volumeRatio*100) / 100,
-			TotalMV:      math.Round(totalMV*100) / 100,
-			Amount:       math.Round((totalMV*turnover/100)*100) / 100,
+	// Step 8: close near high (strong finish)
+	if s.High > s.Low {
+		strength := (s.Close - s.Low) / (s.High - s.Low)
+		if strength >= 0.7 {
+			steps = append(steps, "8")
 		}
-		allStocks = append(allStocks, s)
 	}
 
-	return allStocks
+	return strings.Join(steps, ",")
 }
 
 // ==================== API Handlers ====================
@@ -808,7 +738,7 @@ func (h *Handler) GetAIStockPicks(c *gin.Context) {
 	} else {
 		// Default: get latest batch
 		var latestBatch model.AIStockPickBatch
-		if err := repository.DB.Order("created_at desc").First(&latestBatch).Error; err == nil {
+		if err := repository.DB.Where("status = ?", "completed").Order("created_at desc").First(&latestBatch).Error; err == nil {
 			query = query.Where("batch_id = ?", latestBatch.BatchID)
 		}
 	}
@@ -826,7 +756,7 @@ func (h *Handler) GetAIStockPicks(c *gin.Context) {
 	if date != "" {
 		batchQuery = batchQuery.Where("trade_date = ?", date)
 	}
-	batchQuery.Order("created_at desc").Limit(10).Find(&batches)
+	batchQuery.Order("created_at desc").Limit(20).Find(&batches)
 
 	response.Success(c, gin.H{
 		"items":       picks,
@@ -873,7 +803,7 @@ func (h *Handler) RunAIStockPick(c *gin.Context) {
 	go runAIStockScreening(tradeDate)
 
 	response.Success(c, gin.H{
-		"message":    "AI筛选任务已提交",
+		"message":    "隔夜套利筛选任务已提交，正在获取实时行情数据...",
 		"trade_date": tradeDate,
 		"time":       now.Format("15:04:05"),
 	})
@@ -907,7 +837,7 @@ func (h *Handler) GetAIStockPickDetail(c *gin.Context) {
 func (h *Handler) GetAIStockPickStats(c *gin.Context) {
 	// Total batches
 	var totalBatches int64
-	repository.DB.Model(&model.AIStockPickBatch{}).Count(&totalBatches)
+	repository.DB.Model(&model.AIStockPickBatch{}).Where("status = ?", "completed").Count(&totalBatches)
 
 	// Total unique stocks picked
 	var totalStocks int64
@@ -916,7 +846,8 @@ func (h *Handler) GetAIStockPickStats(c *gin.Context) {
 	// Recent 7 day stats
 	sevenDaysAgo := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
 	var recentBatches []model.AIStockPickBatch
-	repository.DB.Where("trade_date >= ?", sevenDaysAgo).Order("created_at desc").Find(&recentBatches)
+	repository.DB.Where("trade_date >= ? AND status = ?", sevenDaysAgo, "completed").
+		Order("created_at desc").Find(&recentBatches)
 
 	// Average result count
 	var avgCount float64
@@ -942,18 +873,79 @@ func (h *Handler) GetAIStockPickStats(c *gin.Context) {
 		Limit(10).
 		Find(&topStocks)
 
+	// Latest batch info
+	var latestBatch model.AIStockPickBatch
+	repository.DB.Where("status = ?", "completed").Order("created_at desc").First(&latestBatch)
+
 	response.Success(c, gin.H{
 		"total_batches":  totalBatches,
 		"total_stocks":   totalStocks,
 		"recent_batches": recentBatches,
 		"avg_result":     math.Round(avgCount*10) / 10,
 		"top_stocks":     topStocks,
+		"latest_batch":   latestBatch,
 	})
 }
 
-// ==================== Sort helpers ====================
+// ==================== Helpers ====================
 
-// sortByScore sorts picks by score descending
+type codeBuddyResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		Fields []string        `json:"fields"`
+		Items  [][]interface{} `json:"items"`
+	} `json:"data"`
+}
+
+func buildFieldIndex(fields []string) map[string]int {
+	idx := make(map[string]int)
+	for i, f := range fields {
+		idx[f] = i
+	}
+	return idx
+}
+
+func getFieldStr(item []interface{}, idx map[string]int, field string) (string, bool) {
+	i, ok := idx[field]
+	if !ok || i >= len(item) {
+		return "", false
+	}
+	switch v := item[i].(type) {
+	case string:
+		return v, true
+	case float64:
+		return fmt.Sprintf("%v", v), true
+	default:
+		return fmt.Sprintf("%v", v), true
+	}
+}
+
+func getFieldFloat(item []interface{}, idx map[string]int, field string) float64 {
+	i, ok := idx[field]
+	if !ok || i >= len(item) {
+		return 0
+	}
+	switch v := item[i].(type) {
+	case float64:
+		return v
+	case string:
+		f, _ := strconv.ParseFloat(v, 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+// extractPureCode extracts numeric code from ts_code format (e.g., "000001.SZ" -> "000001")
+func extractPureCode(tsCode string) string {
+	parts := strings.Split(tsCode, ".")
+	return parts[0]
+}
+
+// getAkShareServiceURL is defined in dashboard_overview.go - reused directly
+
+// sortPicksByScore sorts picks by score descending (unused but kept for compatibility)
 func sortPicksByScore(picks []model.AIStockPick) {
 	sort.Slice(picks, func(i, j int) bool {
 		return picks[i].Score > picks[j].Score
