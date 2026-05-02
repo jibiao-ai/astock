@@ -121,18 +121,8 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 		upLimitCount, downLimitCount, brokenCount = fetchLimitCountsRobust(tradeDate, refresh)
 	}
 
-	// 5. Board ladder (连板天梯) - Eastmoney first, then AkShare fallback
+	// 5. Board ladder (连板天梯) - AkShare FIRST priority, then Eastmoney/DB fallbacks
 	ladderData := fetchBoardLadderRobust(tradeDate, refresh)
-	// AkShare fallback for board ladder
-	if len(ladderData) == 0 {
-		log.Printf("[Ladder] Primary sources returned empty, trying AkShare fallback for date %s", tradeDate)
-		ladderData = fetchAkShareBoardLadder(tradeDate)
-		if len(ladderData) > 0 {
-			log.Printf("[Ladder] Got %d levels from AkShare fallback", len(ladderData))
-		} else {
-			log.Printf("[Ladder] WARNING: AkShare board_ladder also returned empty for date %s", tradeDate)
-		}
-	}
 
 	// 6. Get highest board from ladder data
 	highestBoard := 0
@@ -927,14 +917,22 @@ func persistLimitCountsToDB(tradeDate string, up, down, broken int) {
 // ==================== ROBUST FETCH: Board Ladder (连板天梯) ====================
 
 func fetchBoardLadderRobust(tradeDate string, refresh bool) []gin.H {
-	// === Priority 1: Eastmoney real-time ZT Pool with board count (f136) ===
-	ladder := fetchBoardLadderFromEastmoneyPool()
+	// === Priority 1 (HIGHEST): AkShare board_ladder - most reliable and complete ===
+	ladder := fetchAkShareBoardLadder(tradeDate)
+	if len(ladder) > 0 {
+		log.Printf("[Ladder] Got %d levels from AkShare (priority 1)", len(ladder))
+		return ladder
+	}
+	log.Printf("[Ladder] AkShare returned empty for %s, trying fallbacks...", tradeDate)
+
+	// === Priority 2: Eastmoney real-time ZT Pool with board count (f136) ===
+	ladder = fetchBoardLadderFromEastmoneyPool()
 	if len(ladder) > 0 {
 		log.Printf("[Ladder] Got %d levels from Eastmoney RT pool", len(ladder))
 		return ladder
 	}
 
-	// === Priority 2: DB limit_step data ===
+	// === Priority 3: DB limit_step data ===
 	var steps []TsLimitStep
 	repository.DB.Where("trade_date = ?", tradeDate).Find(&steps)
 
@@ -952,8 +950,7 @@ func fetchBoardLadderRobust(tradeDate string, refresh bool) []gin.H {
 		}
 	}
 
-	// === Priority 3: Build from limit_list data (limit_times >= 2) ===
-	// Ensure limit_list data exists (fetches from Tushare limit_list_ths/limit_list_d if needed)
+	// === Priority 4: Build from limit_list data (limit_times >= 2) ===
 	ensureLimitListData(tradeDate, refresh)
 	ladder = fetchBoardLadderFromLimitList(tradeDate)
 	if len(ladder) > 0 {
@@ -961,7 +958,7 @@ func fetchBoardLadderRobust(tradeDate string, refresh bool) []gin.H {
 		return ladder
 	}
 
-	// === Priority 4: Try previous trading dates ===
+	// === Priority 5: Try previous trading dates ===
 	for i := 1; i <= 5; i++ {
 		prevDate := getPreviousTradingDate(tradeDate, i)
 		if prevDate == "" {
