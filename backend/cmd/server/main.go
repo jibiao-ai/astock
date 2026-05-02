@@ -240,10 +240,49 @@ func isDir(path string) bool {
 	return info.IsDir()
 }
 
-// startAkShareService starts the AkShare Python microservice in background
-// This provides fallback market data when Tushare APIs fail or are rate-limited
+// startAkShareService checks AkShare service connectivity.
+// In Docker mode (AKSHARE_SERVICE_URL is set), it only verifies the service is reachable.
+// In local dev mode, it starts the Python microservice as a subprocess.
 func startAkShareService() {
-	// Find the akshare_service directory
+	// Determine the AkShare service URL
+	akshareURL := os.Getenv("AKSHARE_SERVICE_URL")
+	if akshareURL == "" {
+		akshareURL = "http://127.0.0.1:9090"
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// Check if service is already reachable (Docker container or already running)
+	for attempt := 0; attempt < 10; attempt++ {
+		if resp, err := client.Get(akshareURL + "/health"); err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				if strings.Contains(string(body), "\"akshare_available\":true") || strings.Contains(string(body), "\"akshare_available\": true") {
+					log.Printf("[AkShare] Service is ready at %s (akshare available)", akshareURL)
+					return
+				}
+				log.Printf("[AkShare] Service at %s running but akshare not available", akshareURL)
+				return
+			}
+		}
+		// If AKSHARE_SERVICE_URL is explicitly set (Docker mode), just wait and retry
+		if os.Getenv("AKSHARE_SERVICE_URL") != "" {
+			log.Printf("[AkShare] Waiting for Docker service at %s (attempt %d/10)...", akshareURL, attempt+1)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		// Local dev mode: break out and try to start subprocess
+		break
+	}
+
+	// If AKSHARE_SERVICE_URL is set (Docker mode), service should be managed externally
+	if os.Getenv("AKSHARE_SERVICE_URL") != "" {
+		log.Printf("[AkShare] WARNING: Docker service at %s not reachable after 30s. Check docker-compose logs.", akshareURL)
+		return
+	}
+
+	// === Local dev mode: start AkShare as subprocess ===
 	scriptPaths := []string{
 		"../backend/akshare_service/main.py",
 		"./akshare_service/main.py",
@@ -263,22 +302,6 @@ func startAkShareService() {
 		return
 	}
 
-	// Check if already running by pinging health endpoint
-	client := &http.Client{Timeout: 2 * time.Second}
-	if resp, err := client.Get("http://127.0.0.1:9090/health"); err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode == 200 {
-			body, _ := io.ReadAll(resp.Body)
-			// Check if akshare is actually available
-			if strings.Contains(string(body), "\"akshare_available\": true") || strings.Contains(string(body), "\"akshare_available\":true") {
-				log.Println("[AkShare] Service already running on port 9090 with akshare available")
-				return
-			}
-			// Service running but akshare not installed - kill it and reinstall
-			log.Println("[AkShare] Service running but akshare NOT available, will reinstall dependencies...")
-		}
-	}
-
 	// Auto-install akshare dependencies before starting
 	log.Println("[AkShare] Installing Python dependencies (akshare, pandas)...")
 	installCmd := exec.Command("pip3", "install", "--quiet", "--disable-pip-version-check", "akshare", "pandas")
@@ -286,7 +309,6 @@ func startAkShareService() {
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {
 		log.Printf("[AkShare] WARNING: pip install failed: %v (will try to start anyway)", err)
-		// Try with pip instead of pip3
 		installCmd2 := exec.Command("pip", "install", "--quiet", "--disable-pip-version-check", "akshare", "pandas")
 		installCmd2.Stdout = os.Stdout
 		installCmd2.Stderr = os.Stderr
@@ -310,14 +332,14 @@ func startAkShareService() {
 
 	log.Printf("[AkShare] Service started with PID %d", cmd.Process.Pid)
 
-	// Wait for it to be ready (up to 15 seconds - akshare import can be slow)
+	// Wait for it to be ready (up to 15 seconds)
 	for i := 0; i < 30; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if resp, err := client.Get("http://127.0.0.1:9090/health"); err == nil {
+		if resp, err := client.Get(akshareURL + "/health"); err == nil {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
-				if strings.Contains(string(body), "\"akshare_available\": true") || strings.Contains(string(body), "\"akshare_available\":true") {
+				if strings.Contains(string(body), "\"akshare_available\":true") || strings.Contains(string(body), "\"akshare_available\": true") {
 					log.Println("[AkShare] Service is ready and healthy (akshare available)")
 					return
 				}

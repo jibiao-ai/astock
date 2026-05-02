@@ -64,12 +64,15 @@ services:
       JWT_SECRET: quantmind-secret-key-2026
       ADMIN_USER: admin
       ADMIN_PASSWORD: "Admin@2026!"
+      AKSHARE_SERVICE_URL: "http://akshare:9090"
     ports:
       - "8080:8080"
     depends_on:
       mysql:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      akshare:
         condition: service_healthy
     networks:
       - quantmind-net
@@ -79,6 +82,27 @@ services:
       - 8.8.8.8
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  akshare:
+    build:
+      context: ./backend/akshare_service
+      dockerfile: Dockerfile
+      network: host
+    container_name: quantmind-akshare
+    ports:
+      - "9090:9090"
+    networks:
+      - quantmind-net
+    restart: unless-stopped
+    dns:
+      - 223.5.5.5
+      - 8.8.8.8
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   frontend:
     build:

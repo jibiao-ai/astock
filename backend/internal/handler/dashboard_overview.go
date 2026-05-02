@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -1937,7 +1938,17 @@ func fetchTushareIndustryHeat(tradeDate string) []gin.H {
 // ==================== AkShare Fallback Client ====================
 // Calls the AkShare Python microservice (port 9090) for fallback data
 
-const akshareServiceURL = "http://127.0.0.1:9090"
+// akshareServiceURL is configurable via AKSHARE_SERVICE_URL env var
+// Default: http://akshare:9090 (Docker service name within compose network)
+// For local dev: set AKSHARE_SERVICE_URL=http://127.0.0.1:9090
+var akshareServiceURL = getAkShareServiceURL()
+
+func getAkShareServiceURL() string {
+	if url := os.Getenv("AKSHARE_SERVICE_URL"); url != "" {
+		return url
+	}
+	return "http://akshare:9090"
+}
 
 // findPrevWeekday returns the trade date N weekdays before the given date
 func findPrevWeekday(tradeDate string, daysBack int) string {
