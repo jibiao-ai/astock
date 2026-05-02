@@ -101,49 +101,51 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 	}
 
 	// 4. Limit up/down/broken counts
+	// ALWAYS try AkShare market_stats first for accurate broken/highest data
+	akLimitUp, akLimitDown, akBrokenCount, akHighestBoard, akBrokenRate, akSealRatio := fetchAkShareMarketStats(tradeDate)
+	
 	var upLimitCount, downLimitCount, brokenCount int64
 	if snapshot != nil && (snapshot.LimitUpCount > 0 || snapshot.LimitDownCount > 0) {
 		upLimitCount = int64(snapshot.LimitUpCount)
 		downLimitCount = int64(snapshot.LimitDownCount)
-		// Broken count not available from daily API, try Eastmoney
-		brokenFromEM := fetchBrokenCountFromEastmoneyPool()
-		brokenCount = int64(brokenFromEM)
-		log.Printf("[LimitCounts] From Tushare daily: up=%d, down=%d, broken=%d(EM)", upLimitCount, downLimitCount, brokenCount)
-		// If Eastmoney broken count failed, try AkShare for broken count
+		// Use AkShare broken count (most reliable)
+		brokenCount = int64(akBrokenCount)
 		if brokenCount == 0 {
-			_, _, akBroken, _, _, _ := fetchAkShareMarketStats(tradeDate)
-			if akBroken > 0 {
-				brokenCount = int64(akBroken)
-				log.Printf("[LimitCounts] AkShare fallback for broken count: %d", brokenCount)
-			}
+			// Fallback to Eastmoney
+			brokenFromEM := fetchBrokenCountFromEastmoneyPool()
+			brokenCount = int64(brokenFromEM)
 		}
+		log.Printf("[LimitCounts] up=%d(Tushare), down=%d(Tushare), broken=%d(AkShare/EM)", upLimitCount, downLimitCount, brokenCount)
 	} else {
 		upLimitCount, downLimitCount, brokenCount = fetchLimitCountsRobust(tradeDate, refresh)
+		// Override with AkShare if available
+		if akLimitUp > 0 {
+			upLimitCount = int64(akLimitUp)
+			downLimitCount = int64(akLimitDown)
+			brokenCount = int64(akBrokenCount)
+		}
 	}
 
 	// 5. Board ladder (连板天梯) - AkShare FIRST priority, then Eastmoney/DB fallbacks
 	ladderData := fetchBoardLadderRobust(tradeDate, refresh)
 
-	// 6. Get highest board from ladder data
+	// 6. Get highest board from ladder data or AkShare market_stats
 	highestBoard := 0
 	for _, level := range ladderData {
 		if lv, ok := level["level"].(int); ok && lv > highestBoard {
 			highestBoard = lv
 		}
 	}
+	// Use AkShare highest board if ladder didn't provide it
+	if highestBoard == 0 && akHighestBoard > 0 {
+		highestBoard = akHighestBoard
+		log.Printf("[HighestBoard] From AkShare market_stats: %d", highestBoard)
+	}
 	if highestBoard == 0 {
 		var maxItem TsLimitList
 		if err := repository.DB.Where("trade_date = ? AND `limit` = 'U'", tradeDate).
 			Order("limit_times DESC").First(&maxItem).Error; err == nil && maxItem.LimitTimes > 0 {
 			highestBoard = maxItem.LimitTimes
-		}
-	}
-	// AkShare fallback for highest board
-	if highestBoard == 0 {
-		_, _, _, akHighest, _, _ := fetchAkShareMarketStats(tradeDate)
-		if akHighest > 0 {
-			highestBoard = akHighest
-			log.Printf("[HighestBoard] Got %d from AkShare fallback", highestBoard)
 		}
 	}
 
@@ -177,40 +179,29 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 	// 8. Sentiment score
 	sentimentScore := computeSentimentScore(upCount, downCount, flatCount, int(upLimitCount), int(downLimitCount), int(brokenCount), highestBoard, totalAmountWanYi)
 
-	// 9. Seal ratio and broken rate
-	// AkShare fallback if no limit data from primary sources
-	if upLimitCount == 0 && downLimitCount == 0 {
-		akUp, akDown, akBroken, akHighest, _, akSealRatio := fetchAkShareMarketStats(tradeDate)
-		if akUp > 0 || akDown > 0 {
-			upLimitCount = int64(akUp)
-			downLimitCount = int64(akDown)
-			brokenCount = int64(akBroken)
-			if akHighest > highestBoard {
-				highestBoard = akHighest
-			}
-			log.Printf("[LimitCounts] AkShare fallback: up=%d, down=%d, broken=%d, highest=%d, seal=%s",
-				akUp, akDown, akBroken, akHighest, akSealRatio)
+	// 9. Seal ratio and broken rate (using already-fetched AkShare data from step 4)
+	if upLimitCount == 0 && akLimitUp > 0 {
+		upLimitCount = int64(akLimitUp)
+		downLimitCount = int64(akLimitDown)
+		brokenCount = int64(akBrokenCount)
+		if akHighestBoard > highestBoard {
+			highestBoard = akHighestBoard
 		}
-	} else if brokenCount == 0 || highestBoard == 0 {
-		// Primary sources have limit data but missing broken/highest - supplement from AkShare
-		_, _, akBroken, akHighest, _, _ := fetchAkShareMarketStats(tradeDate)
-		if brokenCount == 0 && akBroken > 0 {
-			brokenCount = int64(akBroken)
-			log.Printf("[LimitCounts] AkShare supplement broken count: %d", brokenCount)
-		}
-		if highestBoard == 0 && akHighest > 0 {
-			highestBoard = akHighest
-			log.Printf("[LimitCounts] AkShare supplement highest board: %d", highestBoard)
+		log.Printf("[LimitCounts] Used AkShare data: up=%d, down=%d, broken=%d, highest=%d",
+			akLimitUp, akLimitDown, akBrokenCount, akHighestBoard)
+	}
+	sealRatio := akSealRatio
+	if sealRatio == "" || sealRatio == "---" {
+		if upLimitCount > 0 && downLimitCount > 0 {
+			sealRatio = strconv.FormatInt(upLimitCount, 10) + ":" + strconv.FormatInt(downLimitCount, 10)
+		} else if upLimitCount > 0 {
+			sealRatio = strconv.FormatInt(upLimitCount, 10) + ":0"
+		} else {
+			sealRatio = "---"
 		}
 	}
-	sealRatio := "---"
-	if upLimitCount > 0 && downLimitCount > 0 {
-		sealRatio = strconv.FormatInt(upLimitCount, 10) + ":" + strconv.FormatInt(downLimitCount, 10)
-	} else if upLimitCount > 0 {
-		sealRatio = strconv.FormatInt(upLimitCount, 10) + ":0"
-	}
-	brokenRate := 0.0
-	if upLimitCount+brokenCount > 0 {
+	brokenRate := akBrokenRate
+	if brokenRate == 0 && upLimitCount+brokenCount > 0 {
 		brokenRate = float64(brokenCount) / float64(upLimitCount+brokenCount) * 100
 	}
 
@@ -2015,9 +2006,21 @@ func fetchAkShareJSON(path string) (map[string]interface{}, error) {
 // fetchAkShareMarketStats gets comprehensive market stats from AkShare service
 // Returns: limit_up_count, limit_down_count, broken_count, highest_board, broken_rate, seal_ratio
 func fetchAkShareMarketStats(tradeDate string) (int, int, int, int, float64, string) {
-	data, err := fetchAkShareJSON(fmt.Sprintf("/market_stats?trade_date=%s", tradeDate))
+	var data map[string]interface{}
+	var err error
+	// Retry up to 3 times
+	for attempt := 1; attempt <= 3; attempt++ {
+		data, err = fetchAkShareJSON(fmt.Sprintf("/market_stats?trade_date=%s", tradeDate))
+		if err == nil {
+			break
+		}
+		log.Printf("[AkShare] market_stats attempt %d failed: %v", attempt, err)
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
 	if err != nil {
-		log.Printf("[AkShare] market_stats error: %v", err)
+		log.Printf("[AkShare] market_stats ALL attempts failed for %s: %v", tradeDate, err)
 		return 0, 0, 0, 0, 0, "---"
 	}
 
@@ -2038,10 +2041,23 @@ func fetchAkShareMarketStats(tradeDate string) (int, int, int, int, float64, str
 
 // fetchAkShareBoardLadder gets board ladder (连板天梯) from AkShare service
 // Returns full stock details: code, name, close, pct_chg, turnover_ratio, amount, tag, status
+// Includes retry logic for reliability
 func fetchAkShareBoardLadder(tradeDate string) []gin.H {
-	data, err := fetchAkShareJSON(fmt.Sprintf("/board_ladder?trade_date=%s", tradeDate))
+	var data map[string]interface{}
+	var err error
+	// Retry up to 3 times with increasing delay
+	for attempt := 1; attempt <= 3; attempt++ {
+		data, err = fetchAkShareJSON(fmt.Sprintf("/board_ladder?trade_date=%s", tradeDate))
+		if err == nil {
+			break
+		}
+		log.Printf("[AkShare] board_ladder attempt %d failed: %v", attempt, err)
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
 	if err != nil {
-		log.Printf("[AkShare] board_ladder error: %v", err)
+		log.Printf("[AkShare] board_ladder ALL attempts failed for date %s: %v", tradeDate, err)
 		return nil
 	}
 
