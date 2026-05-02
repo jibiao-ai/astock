@@ -135,6 +135,7 @@ export const getDashboardOverview = (params) => api.get('/market/dashboard-overv
 export const getHotMoneyBoard = (params) => api.get('/market/hotmoney-board', { params })
 export const getHotMoneyDetail = (params) => api.get('/market/hotmoney-detail', { params })
 export const getHotMoneyDates = (params) => api.get('/market/hotmoney-dates', { params })
+export const hotMoneyBackfill = (params) => api.post('/market/hotmoney-backfill', null, { params })
 
 // AI买卖决策
 export const analyzeStock = (data) => api.post('/decision/analyze', data)

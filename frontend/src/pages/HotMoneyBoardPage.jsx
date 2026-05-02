@@ -2,12 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { 
   getTrendChart, getKLineRealtime, getChipDistribution,
   getStockFundFlow, getGubaDiscussion,
-  getHotMoneyBoard, getHotMoneyDates
+  getHotMoneyBoard, getHotMoneyDates, hotMoneyBackfill
 } from '../services/api'
 import {
   Zap, TrendingUp, TrendingDown, RefreshCw, Loader2,
   BarChart3, Activity, DollarSign, MessageSquare, ChevronDown, ChevronUp,
-  Calendar, ArrowUpRight, ArrowDownRight, Crown, ChevronLeft, ChevronRight, X
+  Calendar, ArrowUpRight, ArrowDownRight, Crown, ChevronLeft, ChevronRight, X,
+  Download
 } from 'lucide-react'
 
 // ==================== Format Utility ====================
@@ -211,8 +212,8 @@ function CalendarPicker({ dates, tradeDate, onChange }) {
   const handleDayClick = (day) => {
     if (!day || isFuture(day)) return
     const dateStr = getDateStr(day)
-    // Allow clicking on available dates (trading days with data)
-    if (isAvailable(day)) {
+    // Allow clicking on any weekday (trading day) - data will be fetched on demand
+    if (!isWeekend(day)) {
       onChange(dateStr)
       setOpen(false)
     }
@@ -274,7 +275,7 @@ function CalendarPicker({ dates, tradeDate, onChange }) {
                     <button
                       key={di}
                       onClick={() => handleDayClick(day)}
-                      disabled={!day || future || !available}
+                      disabled={!day || future || weekend}
                       className={`relative flex flex-col items-center justify-center py-1.5 mx-0.5 my-0.5 rounded-lg text-xs transition
                         ${!day ? '' : selected
                           ? 'text-white font-bold shadow-md'
@@ -282,7 +283,7 @@ function CalendarPicker({ dates, tradeDate, onChange }) {
                             ? 'hover:bg-[#F0EDFA] cursor-pointer font-medium text-gray-700'
                             : weekend || future
                               ? 'text-gray-300 cursor-not-allowed'
-                              : 'text-gray-300 cursor-not-allowed'
+                              : 'hover:bg-gray-50 cursor-pointer text-gray-500'
                         }`}
                       style={selected ? { background: '#513CC8' } : {}}
                     >
@@ -294,6 +295,9 @@ function CalendarPicker({ dates, tradeDate, onChange }) {
                           )}
                           {selected && count && (
                             <span className="text-[8px] text-white/80">{count}只</span>
+                          )}
+                          {!available && !weekend && !future && !selected && (
+                            <span className="text-[8px] text-gray-300">可查</span>
                           )}
                           {todayMark && !selected && (
                             <div className="absolute bottom-0.5 w-1 h-1 rounded-full" style={{ background: '#513CC8' }} />
@@ -983,7 +987,7 @@ export default function HotMoneyBoardPage() {
 
   const fetchDates = async () => {
     try {
-      const res = await getHotMoneyDates({ limit: 60 })
+      const res = await getHotMoneyDates({ limit: 90 })
       if (res?.code === 0 && res.data?.dates) {
         setDates(res.data.dates)
         if (res.data.dates.length > 0 && !tradeDate) {
@@ -996,7 +1000,7 @@ export default function HotMoneyBoardPage() {
   const fetchBoard = async () => {
     setLoading(true)
     try {
-      const params = { sort: sortBy }
+      const params = { sort: sortBy, refresh: 'true' }
       if (tradeDate) params.trade_date = tradeDate
       const res = await getHotMoneyBoard(params)
       if (res?.code === 0) {
@@ -1008,6 +1012,8 @@ export default function HotMoneyBoardPage() {
             handleSelectStock(firstTrader.stocks[0])
           }
         }
+        // Refresh dates list after fetching (new date may have been added)
+        fetchDates()
       }
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
@@ -1046,6 +1052,11 @@ export default function HotMoneyBoardPage() {
         <div className="flex items-center gap-3">
           {/* Modern Calendar Picker - Grid Style */}
           <CalendarPicker dates={dates} tradeDate={tradeDate} onChange={setTradeDate} />
+          <button onClick={() => { hotMoneyBackfill({ days: 30 }).then(fetchDates) }}
+            title="回补历史数据(近30个交易日)"
+            className="p-2 rounded-lg transition hover:bg-[#F0EDFA] text-gray-400 hover:text-[#513CC8]">
+            <Download size={16} />
+          </button>
           <button onClick={fetchBoard}
             className="p-2 rounded-lg transition hover:bg-[#F0EDFA]" style={{ color: '#513CC8' }}>
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />

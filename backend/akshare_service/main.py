@@ -606,6 +606,144 @@ def fetch_stock_individual(code):
     return None
 
 
+def fetch_dragon_tiger(date_str):
+    """龙虎榜数据 - AkShare stock_lhb_detail_em + stock_lhb_jgmx_em"""
+    cache_key = f"dragon_tiger_{date_str}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    if not AKSHARE_AVAILABLE:
+        return {"stocks": [], "institutions": []}
+
+    result = {"stocks": [], "institutions": [], "trade_date": date_str}
+
+    # Part 1: 龙虎榜详情 - stock_lhb_detail_em
+    try:
+        formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}" if len(date_str) == 8 else date_str
+        df = ak.stock_lhb_detail_em(
+            start_date=formatted_date,
+            end_date=formatted_date
+        )
+        if df is not None and len(df) > 0:
+            stocks = []
+            for _, row in df.iterrows():
+                code = str(row.get('代码', '') or row.get('code', ''))
+                name = str(row.get('名称', '') or row.get('name', ''))
+                stocks.append({
+                    "code": code,
+                    "name": name,
+                    "close": float(row.get('收盘价', 0) or row.get('close', 0) or 0),
+                    "pct_change": float(row.get('涨跌幅', 0) or row.get('pct_change', 0) or 0),
+                    "turnover_rate": float(row.get('换手率', 0) or row.get('turnover_rate', 0) or 0),
+                    "lhb_net_buy": float(row.get('龙虎榜净买额', 0) or row.get('net_buy', 0) or 0),
+                    "lhb_buy": float(row.get('龙虎榜买入额', 0) or row.get('buy_amount', 0) or 0),
+                    "lhb_sell": float(row.get('龙虎榜卖出额', 0) or row.get('sell_amount', 0) or 0),
+                    "lhb_amount": float(row.get('龙虎榜成交额', 0) or row.get('lhb_amount', 0) or 0),
+                    "total_amount": float(row.get('市场总成交额', 0) or row.get('total_amount', 0) or 0),
+                    "net_rate": float(row.get('净买额占总成交比', 0) or row.get('net_rate', 0) or 0),
+                    "amount_rate": float(row.get('成交额占总成交比', 0) or row.get('amount_rate', 0) or 0),
+                    "reason": str(row.get('解读', '') or row.get('上榜原因', '') or row.get('reason', '')),
+                })
+            result["stocks"] = stocks
+            print(f"[AkShare] stock_lhb_detail_em: {len(stocks)} stocks for {date_str}")
+    except Exception as e:
+        print(f"[AkShare] stock_lhb_detail_em error for {date_str}: {e}")
+
+    # Part 2: 龙虎榜机构明细 - stock_lhb_jgmx_em
+    try:
+        formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}" if len(date_str) == 8 else date_str
+        df_inst = ak.stock_lhb_jgmx_em(
+            start_date=formatted_date,
+            end_date=formatted_date
+        )
+        if df_inst is not None and len(df_inst) > 0:
+            institutions = []
+            for _, row in df_inst.iterrows():
+                code = str(row.get('代码', '') or row.get('code', ''))
+                name = str(row.get('名称', '') or row.get('name', ''))
+                institutions.append({
+                    "code": code,
+                    "name": name,
+                    "buy_amt": float(row.get('买入额', 0) or row.get('buy', 0) or 0),
+                    "sell_amt": float(row.get('卖出额', 0) or row.get('sell', 0) or 0),
+                    "net_amt": float(row.get('净额', 0) or row.get('net_buy', 0) or 0),
+                    "reason": str(row.get('解读', '') or row.get('reason', '')),
+                })
+            result["institutions"] = institutions
+            print(f"[AkShare] stock_lhb_jgmx_em: {len(institutions)} records for {date_str}")
+    except Exception as e:
+        print(f"[AkShare] stock_lhb_jgmx_em error for {date_str}: {e}")
+
+    # Part 3: 龙虎榜营业部明细 - stock_lhb_stock_detail_em (per stock, specific seats)
+    try:
+        formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}" if len(date_str) == 8 else date_str
+        df_stat = ak.stock_lhb_stock_statistic_em(indicator="近一月")
+        if df_stat is not None and len(df_stat) > 0:
+            # This gives frequently appearing stocks - useful for identifying hot money patterns
+            pass  # We'll use the detail data above for now
+    except Exception as e:
+        pass  # Not critical
+
+    if result["stocks"] or result["institutions"]:
+        cache_set(cache_key, result)
+
+    return result
+
+
+def fetch_dragon_tiger_detail(code, date_str):
+    """个股龙虎榜营业部明细 - stock_lhb_stock_detail_em"""
+    cache_key = f"dt_detail_{code}_{date_str}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    if not AKSHARE_AVAILABLE:
+        return []
+
+    result = []
+    try:
+        # Get stock detail data: buy/sell seats for the specific stock
+        df = ak.stock_lhb_stock_detail_em(
+            symbol=code,
+            date=f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}" if len(date_str) == 8 else date_str,
+            flag="买入"
+        )
+        if df is not None and len(df) > 0:
+            for _, row in df.iterrows():
+                result.append({
+                    "seat": str(row.get('营业部名称', '') or row.get('exalter', '')),
+                    "side": "buy",
+                    "buy_amt": float(row.get('买入额', 0) or row.get('buy', 0) or 0),
+                    "sell_amt": float(row.get('卖出额', 0) or row.get('sell', 0) or 0),
+                    "net_amt": float(row.get('净额', 0) or row.get('net_buy', 0) or 0),
+                })
+    except Exception as e:
+        print(f"[AkShare] stock_lhb_stock_detail_em buy error for {code}/{date_str}: {e}")
+
+    try:
+        df = ak.stock_lhb_stock_detail_em(
+            symbol=code,
+            date=f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}" if len(date_str) == 8 else date_str,
+            flag="卖出"
+        )
+        if df is not None and len(df) > 0:
+            for _, row in df.iterrows():
+                result.append({
+                    "seat": str(row.get('营业部名称', '') or row.get('exalter', '')),
+                    "side": "sell",
+                    "buy_amt": float(row.get('买入额', 0) or row.get('buy', 0) or 0),
+                    "sell_amt": float(row.get('卖出额', 0) or row.get('sell', 0) or 0),
+                    "net_amt": float(row.get('净额', 0) or row.get('net_buy', 0) or 0),
+                })
+    except Exception as e:
+        print(f"[AkShare] stock_lhb_stock_detail_em sell error for {code}/{date_str}: {e}")
+
+    if result:
+        cache_set(cache_key, result)
+    return result
+
+
 class AkShareHandler(BaseHTTPRequestHandler):
     """HTTP handler for AkShare microservice"""
     
@@ -688,11 +826,24 @@ class AkShareHandler(BaseHTTPRequestHandler):
                 else:
                     self.send_json({"code": -1, "error": f"stock {code} individual data not found"}, 404)
             
+            elif path == '/dragon_tiger':
+                data = fetch_dragon_tiger(date_str)
+                self.send_json({"code": 0, "data": {**data, "trade_date": date_str, "source": "akshare"}})
+            
+            elif path == '/dragon_tiger_detail':
+                code = params.get('code', [None])[0]
+                if not code:
+                    self.send_json({"code": -1, "error": "missing code parameter"}, 400)
+                    return
+                data = fetch_dragon_tiger_detail(code, date_str)
+                self.send_json({"code": 0, "data": {"seats": data, "code": code, "trade_date": date_str, "source": "akshare"}})
+            
             else:
                 self.send_json({"error": "Not found", "endpoints": [
                     "/health", "/limit_up", "/limit_down", "/broken_board",
                     "/board_ladder", "/market_stats", "/concept_heat", "/industry_heat",
-                    "/market_overview", "/last_trade_date", "/stock_quote", "/stock_individual"
+                    "/market_overview", "/last_trade_date", "/stock_quote", "/stock_individual",
+                    "/dragon_tiger", "/dragon_tiger_detail"
                 ]}, 404)
         
         except Exception as e:
