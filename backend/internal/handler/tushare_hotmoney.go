@@ -1,9 +1,16 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"quantmind/internal/repository"
@@ -11,6 +18,284 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// ==================== Hot Money Data Scheduler ====================
+// Automatically fetches and stores dragon tiger (龙虎榜) data daily
+// Data sources: Tushare (primary) -> AkShare (fallback)
+
+var (
+	hotMoneySchedulerMu   sync.Mutex
+	lastHotMoneyFetchTime time.Time
+)
+
+// StartHotMoneyScheduler starts the daily dragon tiger data collection scheduler
+// Runs after market close (15:30+) to fetch complete daily data
+func StartHotMoneyScheduler() {
+	go func() {
+		log.Println("[HotMoney] Scheduler started - fetches daily dragon tiger data after market close")
+
+		// Run immediately on start to backfill if needed
+		go hotMoneySchedulerRun()
+
+		// Check every 30 minutes
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			go hotMoneySchedulerRun()
+		}
+	}()
+}
+
+func hotMoneySchedulerRun() {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	now := time.Now().In(loc)
+
+	// Skip weekends
+	if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
+		return
+	}
+
+	// Only run after 16:00 (dragon tiger data is usually available after 16:00)
+	if now.Hour() < 16 {
+		return
+	}
+
+	// Prevent running too frequently (minimum 2 hours between runs)
+	hotMoneySchedulerMu.Lock()
+	if time.Since(lastHotMoneyFetchTime) < 2*time.Hour {
+		hotMoneySchedulerMu.Unlock()
+		return
+	}
+	lastHotMoneyFetchTime = time.Now()
+	hotMoneySchedulerMu.Unlock()
+
+	tradeDate := now.Format("20060102")
+	log.Printf("[HotMoney] Scheduler: fetching dragon tiger data for %s", tradeDate)
+
+	// Check if data already exists for today
+	var count int64
+	repository.DB.Model(&TsDragonTiger{}).Where("trade_date = ?", tradeDate).Count(&count)
+	if count > 0 {
+		log.Printf("[HotMoney] Data already exists for %s (%d records), skipping", tradeDate, count)
+		return
+	}
+
+	// Try Tushare first
+	success := fetchAndSaveDragonTiger(tradeDate)
+	if success {
+		log.Printf("[HotMoney] Successfully fetched data from Tushare for %s", tradeDate)
+		return
+	}
+
+	// Fallback to AkShare
+	log.Printf("[HotMoney] Tushare failed, trying AkShare fallback for %s", tradeDate)
+	success = fetchAndSaveDragonTigerFromAkShare(tradeDate)
+	if success {
+		log.Printf("[HotMoney] Successfully fetched data from AkShare for %s", tradeDate)
+		return
+	}
+
+	log.Printf("[HotMoney] WARNING: Failed to fetch dragon tiger data from all sources for %s", tradeDate)
+}
+
+// BackfillHotMoneyData backfills dragon tiger data for the past N trading days
+func BackfillHotMoneyData(days int) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	now := time.Now().In(loc)
+
+	log.Printf("[HotMoney] Starting backfill for past %d trading days", days)
+	filled := 0
+
+	for i := 0; i < days*2 && filled < days; i++ {
+		d := now.AddDate(0, 0, -i)
+		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+			continue
+		}
+		tradeDate := d.Format("20060102")
+
+		// Check if data exists
+		var count int64
+		repository.DB.Model(&TsDragonTiger{}).Where("trade_date = ?", tradeDate).Count(&count)
+		if count > 0 {
+			filled++
+			continue
+		}
+
+		// Try to fetch
+		log.Printf("[HotMoney] Backfill: fetching data for %s", tradeDate)
+		success := fetchAndSaveDragonTiger(tradeDate)
+		if !success {
+			success = fetchAndSaveDragonTigerFromAkShare(tradeDate)
+		}
+		if success {
+			filled++
+			log.Printf("[HotMoney] Backfill: success for %s", tradeDate)
+		} else {
+			log.Printf("[HotMoney] Backfill: no data available for %s", tradeDate)
+		}
+
+		// Rate limiting between API calls
+		time.Sleep(2 * time.Second)
+	}
+
+	log.Printf("[HotMoney] Backfill complete: %d days processed", filled)
+}
+
+// fetchAndSaveDragonTigerFromAkShare fetches dragon tiger data from AkShare and saves to DB
+func fetchAndSaveDragonTigerFromAkShare(tradeDate string) bool {
+	akURL := getAkShareServiceURL()
+	url := fmt.Sprintf("%s/dragon_tiger?trade_date=%s", akURL, tradeDate)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Printf("[HotMoney] AkShare dragon_tiger request error: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[HotMoney] AkShare dragon_tiger read error: %v", err)
+		return false
+	}
+
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Stocks       []map[string]interface{} `json:"stocks"`
+			Institutions []map[string]interface{} `json:"institutions"`
+			TradeDate    string                   `json:"trade_date"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("[HotMoney] AkShare dragon_tiger parse error: %v", err)
+		return false
+	}
+
+	if result.Code != 0 || len(result.Data.Stocks) == 0 {
+		log.Printf("[HotMoney] AkShare dragon_tiger: no stocks for %s", tradeDate)
+		return false
+	}
+
+	// Convert AkShare data to TsDragonTiger format and save
+	items := make([]TsDragonTiger, 0, len(result.Data.Stocks))
+	for _, stock := range result.Data.Stocks {
+		code := safeStringFromMap(stock, "code")
+		if code == "" {
+			continue
+		}
+		// Convert code to ts_code format (000001 -> 000001.SZ)
+		tsCode := code
+		if !strings.Contains(code, ".") {
+			if strings.HasPrefix(code, "6") {
+				tsCode = code + ".SH"
+			} else {
+				tsCode = code + ".SZ"
+			}
+		}
+
+		items = append(items, TsDragonTiger{
+			TradeDate:    tradeDate,
+			TsCode:       tsCode,
+			Name:         safeStringFromMap(stock, "name"),
+			Close:        safeFloatFromMap(stock, "close"),
+			PctChange:    safeFloatFromMap(stock, "pct_change"),
+			TurnoverRate: safeFloatFromMap(stock, "turnover_rate"),
+			Amount:       safeFloatFromMap(stock, "total_amount"),
+			LBuy:         safeFloatFromMap(stock, "lhb_buy"),
+			LSell:        safeFloatFromMap(stock, "lhb_sell"),
+			LAmount:      safeFloatFromMap(stock, "lhb_amount"),
+			NetAmount:    safeFloatFromMap(stock, "lhb_net_buy"),
+			NetRate:      safeFloatFromMap(stock, "net_rate"),
+			AmountRate:   safeFloatFromMap(stock, "amount_rate"),
+			Reason:       safeStringFromMap(stock, "reason"),
+		})
+	}
+
+	if len(items) == 0 {
+		return false
+	}
+
+	// Save to DB
+	tx := repository.DB.Begin()
+	if tx.Error != nil {
+		return false
+	}
+	tx.Where("trade_date = ?", tradeDate).Delete(&TsDragonTiger{})
+	if err := tx.CreateInBatches(&items, 100).Error; err != nil {
+		tx.Rollback()
+		log.Printf("[HotMoney] AkShare save error: %v", err)
+		return false
+	}
+	if err := tx.Commit().Error; err != nil {
+		return false
+	}
+
+	log.Printf("[HotMoney] Saved %d AkShare dragon tiger records for %s", len(items), tradeDate)
+
+	// Also try to save institution details
+	if len(result.Data.Institutions) > 0 {
+		instItems := make([]TsDragonTigerInst, 0, len(result.Data.Institutions))
+		for _, inst := range result.Data.Institutions {
+			code := safeStringFromMap(inst, "code")
+			tsCode := code
+			if !strings.Contains(code, ".") {
+				if strings.HasPrefix(code, "6") {
+					tsCode = code + ".SH"
+				} else {
+					tsCode = code + ".SZ"
+				}
+			}
+			instItems = append(instItems, TsDragonTigerInst{
+				TradeDate: tradeDate,
+				TsCode:    tsCode,
+				Exalter:   safeStringFromMap(inst, "name"),
+				Side:      "0", // from institution list, default buy side
+				Buy:       safeFloatFromMap(inst, "buy_amt"),
+				Sell:      safeFloatFromMap(inst, "sell_amt"),
+				NetBuy:    safeFloatFromMap(inst, "net_amt"),
+				Reason:    safeStringFromMap(inst, "reason"),
+			})
+		}
+		if len(instItems) > 0 {
+			txInst := repository.DB.Begin()
+			txInst.Where("trade_date = ?", tradeDate).Delete(&TsDragonTigerInst{})
+			txInst.CreateInBatches(&instItems, 100)
+			txInst.Commit()
+		}
+	}
+
+	return true
+}
+
+// Helper functions for safely extracting values from map[string]interface{}
+func safeStringFromMap(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
+func safeFloatFromMap(m map[string]interface{}, key string) float64 {
+	if v, ok := m[key]; ok && v != nil {
+		switch val := v.(type) {
+		case float64:
+			return val
+		case float32:
+			return float64(val)
+		case int:
+			return float64(val)
+		case int64:
+			return float64(val)
+		case string:
+			f, _ := strconv.ParseFloat(val, 64)
+			return f
+		}
+	}
+	return 0
+}
 
 // ==================== GetHotMoneyBoard ====================
 // Dedicated hot money board endpoint: returns trader-stock data for
@@ -354,9 +639,9 @@ func (h *Handler) GetHotMoneyDetail(c *gin.Context) {
 // ==================== GetHotMoneyDates ====================
 // Returns available trade dates with dragon tiger data
 func (h *Handler) GetHotMoneyDates(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
-	if limit < 1 || limit > 30 {
-		limit = 10
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
+	if limit < 1 || limit > 90 {
+		limit = 30
 	}
 
 	type dateResult struct {
@@ -390,3 +675,22 @@ func (h *Handler) GetHotMoneyDates(c *gin.Context) {
 // NOTE: simplifyUnmatchedSeat, matchHotMoneyTraderName, ensureHotMoneyList,
 // fetchAndSaveDragonTiger, normTradeDate, formatTradeDateForDisplay, tsCodeToCode
 // are all defined in tushare_dashboard.go (same package)
+
+// ==================== HotMoneyBackfill ====================
+// Admin endpoint to manually trigger backfill of dragon tiger data
+func (h *Handler) HotMoneyBackfill(c *gin.Context) {
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
+	if days < 1 {
+		days = 5
+	}
+	if days > 60 {
+		days = 60
+	}
+
+	go BackfillHotMoneyData(days)
+
+	response.Success(c, gin.H{
+		"message": fmt.Sprintf("Backfill started for %d trading days", days),
+		"days":    days,
+	})
+}

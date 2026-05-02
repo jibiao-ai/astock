@@ -44,6 +44,12 @@ func main() {
 	// Start AI Stock Pick hourly scheduler
 	handler.StartAIStockPickScheduler()
 
+	// Start Hot Money daily data collection scheduler
+	handler.StartHotMoneyScheduler()
+
+	// Backfill recent dragon tiger data on startup (past 5 trading days)
+	go handler.BackfillHotMoneyData(5)
+
 	// Start AkShare Python microservice as fallback data source
 	go startAkShareService()
 
@@ -120,6 +126,7 @@ func main() {
 		auth.GET("/market/hotmoney-board", h.GetHotMoneyBoard)        // 游资打板(滚动播报+游资列表)
 		auth.GET("/market/hotmoney-detail", h.GetHotMoneyDetail)      // 游资个股详情(选中个股后)
 		auth.GET("/market/hotmoney-dates", h.GetHotMoneyDates)        // 游资数据可用日期
+		auth.POST("/market/hotmoney-backfill", h.HotMoneyBackfill)    // 游资数据回补(管理员手动触发)
 
 		// AI Stock Pick (杨永兴隔夜套利法)
 		auth.GET("/market/ai-stock-picks", h.GetAIStockPicks)
