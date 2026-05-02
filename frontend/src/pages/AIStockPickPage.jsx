@@ -82,7 +82,7 @@ export default function AIStockPickPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <Target className="text-[#D97706]" size={22} />
+            <Target className="text-[#513CC8]" size={22} />
             隔夜套利
           </h1>
           <p className="text-xs text-gray-500 mt-1">
@@ -92,7 +92,7 @@ export default function AIStockPickPage() {
         <div className="flex items-center gap-2">
           <button onClick={handleRun} disabled={running}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-white text-sm font-medium transition-all shadow-sm"
-            style={{ background: running ? '#9CA3AF' : 'linear-gradient(135deg, #D97706 0%, #B45309 100%)' }}>
+            style={{ background: running ? '#9CA3AF' : '#513CC8' }}>
             {running ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
             {running ? '筛选中...' : '立即筛选'}
           </button>
@@ -119,7 +119,7 @@ export default function AIStockPickPage() {
           <span>筛选批次:</span>
         </div>
         <select value={selectedBatchId} onChange={(e) => { setSelectedBatchId(e.target.value); setPage(1) }}
-          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-200 outline-none">
+          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-200 outline-none">
           <option value="">最新批次</option>
           {batches.map(b => (
             <option key={b.batch_id} value={b.batch_id}>
@@ -128,7 +128,7 @@ export default function AIStockPickPage() {
           ))}
         </select>
         <div className="ml-auto text-sm text-gray-500">
-          共 <span className="font-bold text-[#D97706]">{total}</span> 只筛选结果
+          共 <span className="font-bold text-[#513CC8]">{total}</span> 只筛选结果
         </div>
       </div>
 
@@ -137,7 +137,7 @@ export default function AIStockPickPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100" style={{ background: '#FFFBEB' }}>
+              <tr className="border-b border-gray-100" style={{ background: '#F0EDFA' }}>
                 <th className="text-left py-3 px-3 font-medium text-gray-500 text-xs">#</th>
                 <th className="text-left py-3 px-3 font-medium text-gray-500 text-xs">代码</th>
                 <th className="text-left py-3 px-3 font-medium text-gray-500 text-xs">名称</th>
@@ -191,7 +191,7 @@ export default function AIStockPickPage() {
                   <button key={pageNum} onClick={() => setPage(pageNum)}
                     className={`min-w-[32px] h-8 rounded text-xs transition ${
                       page === pageNum ? 'text-white font-medium' : 'text-gray-600 hover:bg-gray-50 border border-gray-200'}`}
-                    style={page === pageNum ? { background: '#D97706' } : {}}>
+                    style={page === pageNum ? { background: '#513CC8' } : {}}>
                     {pageNum}
                   </button>
                 )
@@ -248,9 +248,9 @@ function IronRules() {
                   <p className="text-[11px] font-bold text-red-700 mb-1">其余情况</p>
                   <p className="text-[10px] text-red-600 leading-relaxed">哪怕赚七八个点、盈亏平衡、亏手续费，一律离场</p>
                 </div>
-                <div className="p-2.5 rounded-lg bg-white/70 border border-amber-100">
-                  <p className="text-[11px] font-bold text-amber-800 mb-1">战法精髓</p>
-                  <p className="text-[10px] text-amber-700 leading-relaxed">把A股T+1做成T+0，只赚确定的惯性溢价，不赌未知行情</p>
+                <div className="p-2.5 rounded-lg bg-white/70 border border-purple-100">
+                  <p className="text-[11px] font-bold text-[#3D2E9E] mb-1">战法精髓</p>
+                  <p className="text-[10px] text-[#513CC8] leading-relaxed">把A股T+1做成T+0，只赚确定的惯性溢价，不赌未知行情</p>
                 </div>
               </div>
             </div>
@@ -280,9 +280,9 @@ function EightStepConditions() {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <button onClick={() => setExpanded(!expanded)} 
-        className="w-full flex items-center justify-between p-3 hover:bg-amber-50/50 transition">
+        className="w-full flex items-center justify-between p-3 hover:bg-purple-50/50 transition">
         <div className="flex items-center gap-2">
-          <Filter size={15} className="text-amber-600" />
+          <Filter size={15} className="text-[#513CC8]" />
           <span className="text-sm font-medium text-gray-900">八步筛选条件</span>
           <div className="flex gap-1 ml-2">
             {steps.map(s => (
@@ -325,8 +325,8 @@ function StatsCards({ stats, batches }) {
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
         <div className="flex items-center gap-2 mb-2">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#FEF3C7' }}>
-            <Target size={16} className="text-amber-600" />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#EDE9FE' }}>
+            <Target size={16} className="text-[#513CC8]" />
           </div>
           <span className="text-xs text-gray-500">本次入选</span>
         </div>
@@ -377,7 +377,7 @@ function StockRow({ pick, index, onSelect }) {
 
   const getScoreColor = (score) => {
     if (score >= 85) return '#16A34A'
-    if (score >= 75) return '#D97706'
+    if (score >= 75) return '#513CC8'
     if (score >= 65) return '#2563EB'
     return '#6B7280'
   }
@@ -387,7 +387,7 @@ function StockRow({ pick, index, onSelect }) {
   const reason = pick.note || ''
 
   return (
-    <tr className="border-b border-gray-50 hover:bg-amber-50/30 transition cursor-pointer" onClick={onSelect}>
+    <tr className="border-b border-gray-50 hover:bg-purple-50/30 transition cursor-pointer" onClick={onSelect}>
       <td className="py-2.5 px-3 text-gray-400 text-xs">{index}</td>
       <td className="py-2.5 px-3">
         <span className="font-mono text-xs text-gray-600">{pureCode}</span>
@@ -506,17 +506,17 @@ function StockDetailModal({ stock, onClose }) {
         onClick={e => e.stopPropagation()}>
         
         {/* Modal Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100" style={{ background: '#FFFBEB' }}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-100" style={{ background: '#F0EDFA' }}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)' }}>
+              style={{ background: '#513CC8' }}>
               <Target size={20} className="text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-gray-900">{stock.name}</h2>
                 <span className="font-mono text-xs text-gray-500">{pureCode}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-[#513CC8] font-medium">
                   评分 {stock.score?.toFixed(0)}
                 </span>
               </div>
@@ -536,8 +536,8 @@ function StockDetailModal({ stock, onClose }) {
             return (
               <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs whitespace-nowrap transition ${
-                  active ? 'text-amber-700 font-medium border-b-2' : 'text-gray-500 hover:text-gray-900'}`}
-                style={active ? { borderColor: '#D97706' } : {}}>
+                  active ? 'text-[#513CC8] font-medium border-b-2' : 'text-gray-500 hover:text-gray-900'}`}
+                style={active ? { borderColor: '#513CC8' } : {}}>
                 <Icon size={13} />
                 {tab.label}
               </button>
@@ -581,7 +581,7 @@ function StockInfoTab({ stock }) {
   return (
     <div className="space-y-4">
       {/* Price Banner */}
-      <div className="rounded-xl p-5" style={{ background: 'linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)' }}>
+      <div className="rounded-xl p-5" style={{ background: 'linear-gradient(135deg, #F0EDFA 0%, #E8E3F8 100%)' }}>
         <div className="flex items-end gap-4">
           <div>
             <p className="text-xs text-gray-500 mb-1">当前价格</p>
@@ -597,7 +597,7 @@ function StockInfoTab({ stock }) {
           </div>
           <div className="ml-auto">
             <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-bold text-white"
-              style={{ background: 'linear-gradient(135deg, #D97706 0%, #B45309 100%)' }}>
+              style={{ background: '#513CC8' }}>
               <Award size={14} /> 评分 {stock.score?.toFixed(0)}
             </span>
           </div>
@@ -647,15 +647,15 @@ function StockInfoTab({ stock }) {
 
       {/* Recommendation Reason */}
       {reason && (
-        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50">
-          <p className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1.5">
-            <Zap size={13} className="text-amber-600" /> 推荐理由
+        <div className="p-4 rounded-xl border border-purple-200 bg-purple-50">
+          <p className="text-xs font-bold text-[#3D2E9E] mb-2 flex items-center gap-1.5">
+            <Zap size={13} className="text-[#513CC8]" /> 推荐理由
           </p>
           <div className="space-y-1.5">
             {reason.split('; ').map((r, i) => (
               <div key={i} className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0"></span>
-                <p className="text-xs text-amber-700">{r}</p>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#513CC8] mt-1.5 flex-shrink-0"></span>
+                <p className="text-xs text-gray-700">{r}</p>
               </div>
             ))}
           </div>
@@ -776,7 +776,7 @@ function ChipTab({ loading, data }) {
           </div>
           <div className="text-center">
             <p className="text-[9px] text-gray-400">平均成本</p>
-            <p className="text-xs font-bold text-amber-600">{summary.avg_cost?.toFixed(2)}</p>
+            <p className="text-xs font-bold text-[#513CC8]">{summary.avg_cost?.toFixed(2)}</p>
           </div>
           <div className="text-center">
             <p className="text-[9px] text-gray-400">90%筹码</p>
