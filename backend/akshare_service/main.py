@@ -744,6 +744,84 @@ def fetch_dragon_tiger_detail(code, date_str):
     return result
 
 
+def fetch_all_stocks_realtime():
+    """获取全部A股实时行情数据 - 用于隔夜套利筛选
+    Returns: list of dicts with code, name, close, pct_chg, open, high, low, 
+             volume, amount, turnover_rate, volume_ratio, total_mv
+    """
+    cache_key = "all_stocks_realtime"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    if not AKSHARE_AVAILABLE:
+        return []
+
+    try:
+        df = ak.stock_zh_a_spot_em()
+        if df is None or len(df) == 0:
+            return []
+
+        # Map Chinese column names to English keys
+        col_map = {
+            '代码': 'code',
+            '名称': 'name',
+            '最新价': 'close',
+            '涨跌幅': 'pct_chg',
+            '今开': 'open',
+            '最高': 'high',
+            '最低': 'low',
+            '成交量': 'volume',
+            '成交额': 'amount',
+            '换手率': 'turnover_rate',
+            '量比': 'volume_ratio',
+            '总市值': 'total_mv',
+            '流通市值': 'circ_mv',
+        }
+
+        result = []
+        for _, row in df.iterrows():
+            stock = {}
+            for cn_col, en_key in col_map.items():
+                if cn_col in df.columns:
+                    val = row[cn_col]
+                    if pd.isna(val):
+                        stock[en_key] = 0 if en_key != 'code' and en_key != 'name' else ''
+                    else:
+                        stock[en_key] = val
+                else:
+                    stock[en_key] = 0 if en_key != 'code' and en_key != 'name' else ''
+
+            # Convert total_mv from yuan to 亿
+            if stock.get('total_mv', 0) and stock['total_mv'] > 100000:
+                stock['total_mv'] = stock['total_mv'] / 100000000
+            if stock.get('circ_mv', 0) and stock['circ_mv'] > 100000:
+                stock['circ_mv'] = stock['circ_mv'] / 100000000
+            if stock.get('amount', 0) and stock['amount'] > 100000:
+                stock['amount'] = stock['amount'] / 100000000
+
+            # Ensure numeric types
+            for key in ['close', 'pct_chg', 'open', 'high', 'low', 'volume', 'amount', 
+                        'turnover_rate', 'volume_ratio', 'total_mv', 'circ_mv']:
+                try:
+                    stock[key] = float(stock.get(key, 0) or 0)
+                except (ValueError, TypeError):
+                    stock[key] = 0.0
+
+            if stock.get('code') and stock.get('close', 0) > 0:
+                result.append(stock)
+
+        print(f"[AkShare] fetch_all_stocks_realtime: got {len(result)} stocks")
+        if len(result) > 0:
+            cache_set(cache_key, result)
+        return result
+
+    except Exception as e:
+        print(f"[AkShare] fetch_all_stocks_realtime error: {e}")
+        traceback.print_exc()
+        return []
+
+
 class AkShareHandler(BaseHTTPRequestHandler):
     """HTTP handler for AkShare microservice"""
     
@@ -838,12 +916,17 @@ class AkShareHandler(BaseHTTPRequestHandler):
                 data = fetch_dragon_tiger_detail(code, date_str)
                 self.send_json({"code": 0, "data": {"seats": data, "code": code, "trade_date": date_str, "source": "akshare"}})
             
+            elif path == '/all_stocks':
+                # Returns all A-share stock real-time data for screening
+                data = fetch_all_stocks_realtime()
+                self.send_json({"code": 0, "data": {"all_stocks": data, "count": len(data), "source": "akshare"}})
+            
             else:
                 self.send_json({"error": "Not found", "endpoints": [
                     "/health", "/limit_up", "/limit_down", "/broken_board",
                     "/board_ladder", "/market_stats", "/concept_heat", "/industry_heat",
                     "/market_overview", "/last_trade_date", "/stock_quote", "/stock_individual",
-                    "/dragon_tiger", "/dragon_tiger_detail"
+                    "/dragon_tiger", "/dragon_tiger_detail", "/all_stocks"
                 ]}, 404)
         
         except Exception as e:
