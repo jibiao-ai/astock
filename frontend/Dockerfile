@@ -5,10 +5,6 @@ WORKDIR /app
 # 使用国内 Alpine 镜像源（解决私有网络 TLS 无法访问 dl-cdn.alpinelinux.org 问题）
 RUN sed -i 's#https://dl-cdn.alpinelinux.org/alpine#https://mirrors.aliyun.com/alpine#g' /etc/apk/repositories
 
-# 配置 DNS（解决某些网络环境下 DNS 解析问题）
-RUN echo "nameserver 223.5.5.5" > /etc/resolv.conf && \
-    echo "nameserver 8.8.8.8" >> /etc/resolv.conf
-
 # 复制 npm 配置（国内镜像 + 网络超时优化）
 COPY .npmrc ./
 
