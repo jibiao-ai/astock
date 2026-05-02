@@ -172,6 +172,8 @@ export default function DashboardPage() {
   const [flowTab, setFlowTab] = useState('sector')
   const [limitTab, setLimitTab] = useState('up')
   const [limitPage, setLimitPage] = useState(1)
+  const [limitSortKey, setLimitSortKey] = useState('status') // 'close', 'pct_chg', 'status', 'turnover_ratio'
+  const [limitSortDir, setLimitSortDir] = useState('desc') // 'asc' or 'desc'
   const [flowPage, setFlowPage] = useState(1)
 
   // Dashboard Overview (大盘速览+涨跌分布+情绪温度)
@@ -392,9 +394,35 @@ export default function DashboardPage() {
   const currentFlows = flowTab === 'sector' ? sectorFlows : conceptFlows
   const currentLimitStocks = limitTab === 'up' ? limitUpStocks : (limitTab === 'down' ? limitDownStocks : brokenStocks)
 
+  // Normalize status: '---' or empty → '1连板'
+  const getStatusNum = (s) => {
+    if (s.limit_times > 0) return s.limit_times
+    if (s.status) {
+      const m = s.status.match(/(\d+)连板/)
+      if (m) return parseInt(m[1])
+      if (s.status.includes('一字')) return 1
+      if (s.status.includes('换手')) return 1
+      if (s.status !== '---') return 1
+    }
+    return 1
+  }
+
+  // Sort limit stocks
+  const sortedLimitStocks = [...currentLimitStocks].sort((a, b) => {
+    let va, vb
+    switch (limitSortKey) {
+      case 'close': va = a.close || 0; vb = b.close || 0; break
+      case 'pct_chg': va = a.pct_chg || 0; vb = b.pct_chg || 0; break
+      case 'status': va = getStatusNum(a); vb = getStatusNum(b); break
+      case 'turnover_ratio': va = a.turnover_ratio || 0; vb = b.turnover_ratio || 0; break
+      default: va = getStatusNum(a); vb = getStatusNum(b)
+    }
+    return limitSortDir === 'desc' ? vb - va : va - vb
+  })
+
   const PAGE_SIZE = 12
-  const limitTotalPages = Math.max(1, Math.ceil(currentLimitStocks.length / PAGE_SIZE))
-  const limitPagedStocks = currentLimitStocks.slice((limitPage - 1) * PAGE_SIZE, limitPage * PAGE_SIZE)
+  const limitTotalPages = Math.max(1, Math.ceil(sortedLimitStocks.length / PAGE_SIZE))
+  const limitPagedStocks = sortedLimitStocks.slice((limitPage - 1) * PAGE_SIZE, limitPage * PAGE_SIZE)
   const flowTotalPages = Math.max(1, Math.ceil(currentFlows.length / PAGE_SIZE))
   const flowPagedItems = currentFlows.slice((flowPage - 1) * PAGE_SIZE, flowPage * PAGE_SIZE)
 
@@ -620,6 +648,7 @@ export default function DashboardPage() {
         <div className="col-span-4 glass-card p-4">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800">
             <BarChart3 size={16} style={{ color: '#513CC8' }} /> 涨跌分布
+            {overview?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({overview.trade_date})</span>}
           </h3>
           <div className="space-y-1.5">
             {distribution.map((item, i) => {
@@ -660,6 +689,7 @@ export default function DashboardPage() {
         <div className="col-span-4 glass-card p-4">
           <h3 className="text-sm font-semibold mb-2 flex items-center gap-2 text-gray-800">
             <Activity size={16} style={{ color: '#F59E0B' }} /> 情绪温度计
+            {overview?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({overview.trade_date})</span>}
           </h3>
           <SentimentGauge 
             score={sentimentData.score || tsSentiment.score || 0} 
@@ -867,11 +897,23 @@ export default function DashboardPage() {
               <thead className="sticky top-0 bg-white">
                 <tr className="text-gray-400 border-b border-gray-100">
                   <th className="text-left p-2">股票</th>
-                  <th className="text-right p-2">现价</th>
-                  <th className="text-right p-2">涨跌幅</th>
+                  <th className="text-right p-2 cursor-pointer select-none hover:text-[#513CC8] transition"
+                    onClick={() => { setLimitSortKey('close'); setLimitSortDir(limitSortKey === 'close' && limitSortDir === 'desc' ? 'asc' : 'desc'); setLimitPage(1) }}>
+                    现价 {limitSortKey === 'close' && (limitSortDir === 'desc' ? '↓' : '↑')}
+                  </th>
+                  <th className="text-right p-2 cursor-pointer select-none hover:text-[#513CC8] transition"
+                    onClick={() => { setLimitSortKey('pct_chg'); setLimitSortDir(limitSortKey === 'pct_chg' && limitSortDir === 'desc' ? 'asc' : 'desc'); setLimitPage(1) }}>
+                    涨跌幅 {limitSortKey === 'pct_chg' && (limitSortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th className="text-left p-2">标签</th>
-                  <th className="text-center p-2">状态</th>
-                  <th className="text-right p-2">换手%</th>
+                  <th className="text-center p-2 cursor-pointer select-none hover:text-[#513CC8] transition"
+                    onClick={() => { setLimitSortKey('status'); setLimitSortDir(limitSortKey === 'status' && limitSortDir === 'desc' ? 'asc' : 'desc'); setLimitPage(1) }}>
+                    状态 {limitSortKey === 'status' && (limitSortDir === 'desc' ? '↓' : '↑')}
+                  </th>
+                  <th className="text-right p-2 cursor-pointer select-none hover:text-[#513CC8] transition"
+                    onClick={() => { setLimitSortKey('turnover_ratio'); setLimitSortDir(limitSortKey === 'turnover_ratio' && limitSortDir === 'desc' ? 'asc' : 'desc'); setLimitPage(1) }}>
+                    换手% {limitSortKey === 'turnover_ratio' && (limitSortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th className="text-right p-2">成交额</th>
                 </tr>
               </thead>
@@ -896,7 +938,7 @@ export default function DashboardPage() {
                       ) : '---'}
                     </td>
                     <td className="p-2 text-center">
-                      {s.status ? (
+                      {s.status && s.status !== '---' ? (
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                           s.status.includes('连板') ? 'bg-red-50 text-red-500 border border-red-100' :
                           s.status.includes('一字') ? 'bg-purple-50 text-purple-500 border border-purple-100' :
@@ -904,20 +946,22 @@ export default function DashboardPage() {
                         }`}>{s.status}</span>
                       ) : s.limit_times > 1 ? (
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-500 border border-red-100">{s.limit_times}连板</span>
-                      ) : '---'}
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-50 text-orange-500 border border-orange-100">1连板</span>
+                      )}
                     </td>
                     <td className="p-2 text-right text-gray-600">{s.turnover_ratio?.toFixed(2) || '---'}</td>
                     <td className="p-2 text-right text-gray-600">{s.amount ? formatAmount(s.amount) : '---'}</td>
                   </tr>
                 ))}
-                {currentLimitStocks.length === 0 && (
+                {sortedLimitStocks.length === 0 && (
                   <tr><td colSpan={7} className="text-center p-4 text-gray-400">暂无当日涨跌停数据</td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          {currentLimitStocks.length > PAGE_SIZE && (
-            <PaginationBar page={limitPage} totalPages={limitTotalPages} total={currentLimitStocks.length} label="只" onPageChange={setLimitPage} />
+          {sortedLimitStocks.length > PAGE_SIZE && (
+            <PaginationBar page={limitPage} totalPages={limitTotalPages} total={sortedLimitStocks.length} label="只" onPageChange={setLimitPage} />
           )}
         </div>
 
@@ -1006,7 +1050,7 @@ export default function DashboardPage() {
       {/* ==================== Row 4: 热力板块 + 热力概念 ==================== */}
       <div className="grid grid-cols-12 gap-3">
         <div className="col-span-6 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Flame size={16} style={{ color: '#513CC8' }} /> 热力板块 <span className="text-[10px] text-gray-400 font-normal">({sectorHeatTotal || sectors.length}个)</span></h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Flame size={16} style={{ color: '#513CC8' }} /> 热力板块 {overview?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({overview.trade_date})</span>} <span className="text-[10px] text-gray-400 font-normal">({sectorHeatTotal || sectors.length}个)</span></h3>
           <div className="grid grid-cols-4 gap-1.5">
             {sectors.slice((sectorHeatPage - 1) * 16, sectorHeatPage * 16).map((s, i) => {
               const intensity = Math.min(Math.abs(s.change_pct) / 4, 1)
@@ -1030,7 +1074,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="col-span-6 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Lightbulb size={16} style={{ color: '#F59E0B' }} /> 热力概念 <span className="text-[10px] text-gray-400 font-normal">({finalConceptData.length}个)</span></h3>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Lightbulb size={16} style={{ color: '#F59E0B' }} /> 热力概念 {overview?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({overview.trade_date})</span>} <span className="text-[10px] text-gray-400 font-normal">({finalConceptData.length}个)</span></h3>
           <div className="grid grid-cols-4 gap-1.5">
             {finalConceptData.slice((conceptHeatPage - 1) * 16, conceptHeatPage * 16).map((c, i) => {
               const changePct = c.change_pct || c.pct_change || 0
@@ -1056,22 +1100,6 @@ export default function DashboardPage() {
             <PaginationBar page={conceptHeatPage} totalPages={Math.ceil(finalConceptData.length / 16)} total={finalConceptData.length} label="个概念" onPageChange={setConceptHeatPage} />
           )}
         </div>
-      </div>
-
-      {/* Bottom Stats */}
-      <div className="grid grid-cols-5 gap-3">
-        {[
-          { label: 'AI智能体', value: stats.agents || 0, color: '#513CC8' },
-          { label: '策略信号', value: stats.strategy_signals || 0, color: '#F59E0B' },
-          { label: '行情数据', value: stats.stock_quotes || 0, color: '#3B82F6' },
-          { label: '审计日志', value: stats.audit_logs || 0, color: '#22C55E' },
-          { label: '用户数', value: stats.users || 0, color: '#EC4899' },
-        ].map((item, i) => (
-          <div key={i} className="glass-card p-3 text-center">
-            <p className="text-xs text-gray-400 mb-1">{item.label}</p>
-            <p className="text-lg font-bold" style={{ color: item.color }}>{item.value}</p>
-          </div>
-        ))}
       </div>
     </div>
   )

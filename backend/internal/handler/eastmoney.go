@@ -761,7 +761,28 @@ func (h *Handler) GetConceptHeat(c *gin.Context) {
 }
 
 // fetchAllSectorOrConcept fetches ALL sectors or concepts from Eastmoney (paginated at source)
+// Falls back to AkShare if Eastmoney returns empty
 func fetchAllSectorOrConcept(category string) []gin.H {
+	// Try Eastmoney first
+	items := fetchSectorOrConceptFromEastmoney(category)
+	if len(items) > 0 {
+		return items
+	}
+
+	// Fallback: Try AkShare
+	log.Printf("[SectorHeat] Eastmoney returned empty for %s, trying AkShare fallback", category)
+	items = fetchSectorOrConceptFromAkShare(category)
+	if len(items) > 0 {
+		log.Printf("[SectorHeat] AkShare fallback returned %d items for %s", len(items), category)
+		return items
+	}
+
+	log.Printf("[SectorHeat] WARNING: No data from any source for %s", category)
+	return []gin.H{}
+}
+
+// fetchSectorOrConceptFromEastmoney fetches from Eastmoney push API
+func fetchSectorOrConceptFromEastmoney(category string) []gin.H {
 	var fs string
 	if category == "concept" {
 		fs = "m:90+t:3"
@@ -814,6 +835,91 @@ func fetchAllSectorOrConcept(category string) []gin.H {
 	}
 
 	return allItems
+}
+
+// fetchSectorOrConceptFromAkShare fetches sector/concept heat from AkShare microservice
+func fetchSectorOrConceptFromAkShare(category string) []gin.H {
+	akURL := getAkShareServiceURL()
+	var endpoint string
+	if category == "concept" {
+		endpoint = "/concept_heat"
+	} else {
+		endpoint = "/industry_heat"
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(akURL + endpoint)
+	if err != nil {
+		log.Printf("[SectorHeat] AkShare %s request error: %v", endpoint, err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil
+	}
+
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Concepts []map[string]interface{} `json:"concepts"`
+			Sectors  []map[string]interface{} `json:"sectors"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		log.Printf("[SectorHeat] AkShare %s parse error: %v", endpoint, err)
+		return nil
+	}
+
+	if result.Code != 0 {
+		return nil
+	}
+
+	// Use concepts or sectors array depending on category
+	items := result.Data.Concepts
+	if category != "concept" {
+		items = result.Data.Sectors
+	}
+
+	if len(items) == 0 {
+		return nil
+	}
+
+	ginItems := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		name := ""
+		if v, ok := item["name"]; ok {
+			name = fmt.Sprintf("%v", v)
+		}
+		code := ""
+		if v, ok := item["code"]; ok {
+			code = fmt.Sprintf("%v", v)
+		}
+		changePct := 0.0
+		if v, ok := item["change_pct"].(float64); ok {
+			changePct = v
+		}
+		leadStock := ""
+		if v, ok := item["lead_stock"]; ok {
+			leadStock = fmt.Sprintf("%v", v)
+		}
+
+		ginItems = append(ginItems, gin.H{
+			"name":       name,
+			"code":       code,
+			"change_pct": changePct,
+			"lead_stock": leadStock,
+			"net_flow":   0.0,
+			"flow_in":    0.0,
+			"flow_out":   0.0,
+			"price":      0.0,
+			"net_pct":    0.0,
+		})
+	}
+
+	return ginItems
 }
 
 // persistSectorHeatData saves sector/concept heat data to DB
