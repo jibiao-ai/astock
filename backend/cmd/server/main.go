@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -265,11 +266,35 @@ func startAkShareService() {
 	// Check if already running by pinging health endpoint
 	client := &http.Client{Timeout: 2 * time.Second}
 	if resp, err := client.Get("http://127.0.0.1:9090/health"); err == nil {
-		resp.Body.Close()
+		defer resp.Body.Close()
 		if resp.StatusCode == 200 {
-			log.Println("[AkShare] Service already running on port 9090")
-			return
+			body, _ := io.ReadAll(resp.Body)
+			// Check if akshare is actually available
+			if strings.Contains(string(body), "\"akshare_available\": true") || strings.Contains(string(body), "\"akshare_available\":true") {
+				log.Println("[AkShare] Service already running on port 9090 with akshare available")
+				return
+			}
+			// Service running but akshare not installed - kill it and reinstall
+			log.Println("[AkShare] Service running but akshare NOT available, will reinstall dependencies...")
 		}
+	}
+
+	// Auto-install akshare dependencies before starting
+	log.Println("[AkShare] Installing Python dependencies (akshare, pandas)...")
+	installCmd := exec.Command("pip3", "install", "--quiet", "--disable-pip-version-check", "akshare", "pandas")
+	installCmd.Stdout = os.Stdout
+	installCmd.Stderr = os.Stderr
+	if err := installCmd.Run(); err != nil {
+		log.Printf("[AkShare] WARNING: pip install failed: %v (will try to start anyway)", err)
+		// Try with pip instead of pip3
+		installCmd2 := exec.Command("pip", "install", "--quiet", "--disable-pip-version-check", "akshare", "pandas")
+		installCmd2.Stdout = os.Stdout
+		installCmd2.Stderr = os.Stderr
+		if err2 := installCmd2.Run(); err2 != nil {
+			log.Printf("[AkShare] WARNING: pip install also failed: %v", err2)
+		}
+	} else {
+		log.Println("[AkShare] Dependencies installed successfully")
 	}
 
 	log.Printf("[AkShare] Starting AkShare microservice from: %s", scriptPath)
@@ -285,16 +310,21 @@ func startAkShareService() {
 
 	log.Printf("[AkShare] Service started with PID %d", cmd.Process.Pid)
 
-	// Wait for it to be ready (up to 10 seconds)
-	for i := 0; i < 20; i++ {
+	// Wait for it to be ready (up to 15 seconds - akshare import can be slow)
+	for i := 0; i < 30; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if resp, err := client.Get("http://127.0.0.1:9090/health"); err == nil {
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
-				log.Println("[AkShare] Service is ready and healthy")
+				if strings.Contains(string(body), "\"akshare_available\": true") || strings.Contains(string(body), "\"akshare_available\":true") {
+					log.Println("[AkShare] Service is ready and healthy (akshare available)")
+					return
+				}
+				log.Println("[AkShare] WARNING: Service running but akshare library not available")
 				return
 			}
 		}
 	}
-	log.Println("[AkShare] WARNING: Service started but health check not passing")
+	log.Println("[AkShare] WARNING: Service started but health check not passing after 15s")
 }
