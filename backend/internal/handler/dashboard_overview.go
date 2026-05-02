@@ -109,6 +109,14 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 		brokenFromEM := fetchBrokenCountFromEastmoneyPool()
 		brokenCount = int64(brokenFromEM)
 		log.Printf("[LimitCounts] From Tushare daily: up=%d, down=%d, broken=%d(EM)", upLimitCount, downLimitCount, brokenCount)
+		// If Eastmoney broken count failed, try AkShare for broken count
+		if brokenCount == 0 {
+			_, _, akBroken, _, _, _ := fetchAkShareMarketStats(tradeDate)
+			if akBroken > 0 {
+				brokenCount = int64(akBroken)
+				log.Printf("[LimitCounts] AkShare fallback for broken count: %d", brokenCount)
+			}
+		}
 	} else {
 		upLimitCount, downLimitCount, brokenCount = fetchLimitCountsRobust(tradeDate, refresh)
 	}
@@ -117,9 +125,12 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 	ladderData := fetchBoardLadderRobust(tradeDate, refresh)
 	// AkShare fallback for board ladder
 	if len(ladderData) == 0 {
+		log.Printf("[Ladder] Primary sources returned empty, trying AkShare fallback for date %s", tradeDate)
 		ladderData = fetchAkShareBoardLadder(tradeDate)
 		if len(ladderData) > 0 {
 			log.Printf("[Ladder] Got %d levels from AkShare fallback", len(ladderData))
+		} else {
+			log.Printf("[Ladder] WARNING: AkShare board_ladder also returned empty for date %s", tradeDate)
 		}
 	}
 
@@ -189,6 +200,17 @@ func (h *Handler) GetDashboardOverview(c *gin.Context) {
 			}
 			log.Printf("[LimitCounts] AkShare fallback: up=%d, down=%d, broken=%d, highest=%d, seal=%s",
 				akUp, akDown, akBroken, akHighest, akSealRatio)
+		}
+	} else if brokenCount == 0 || highestBoard == 0 {
+		// Primary sources have limit data but missing broken/highest - supplement from AkShare
+		_, _, akBroken, akHighest, _, _ := fetchAkShareMarketStats(tradeDate)
+		if brokenCount == 0 && akBroken > 0 {
+			brokenCount = int64(akBroken)
+			log.Printf("[LimitCounts] AkShare supplement broken count: %d", brokenCount)
+		}
+		if highestBoard == 0 && akHighest > 0 {
+			highestBoard = akHighest
+			log.Printf("[LimitCounts] AkShare supplement highest board: %d", highestBoard)
 		}
 	}
 	sealRatio := "---"
@@ -931,6 +953,8 @@ func fetchBoardLadderRobust(tradeDate string, refresh bool) []gin.H {
 	}
 
 	// === Priority 3: Build from limit_list data (limit_times >= 2) ===
+	// Ensure limit_list data exists (fetches from Tushare limit_list_ths/limit_list_d if needed)
+	ensureLimitListData(tradeDate, refresh)
 	ladder = fetchBoardLadderFromLimitList(tradeDate)
 	if len(ladder) > 0 {
 		log.Printf("[Ladder] Got %d levels from LimitList DB", len(ladder))
