@@ -25,7 +25,7 @@ export default function AIStockPickPage() {
   const [selectedBatchId, setSelectedBatchId] = useState('')
   const [selectedStock, setSelectedStock] = useState(null)
   const [showDetail, setShowDetail] = useState(false)
-  const pageSize = 20
+  const pageSize = 5
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -376,9 +376,9 @@ function StockRow({ pick, index, onSelect }) {
   const pctColor = isUp ? '#EF4444' : '#22C55E'
 
   const getScoreColor = (score) => {
-    if (score >= 85) return '#16A34A'
-    if (score >= 75) return '#513CC8'
-    if (score >= 65) return '#2563EB'
+    if (score >= 80) return '#EF4444'
+    if (score >= 65) return '#513CC8'
+    if (score >= 50) return '#2563EB'
     return '#6B7280'
   }
 
