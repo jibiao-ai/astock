@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>QuantMind 技术架构流程图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    background: #F5F3FF;
+    display: flex;
+    justify-content: center;
+    padding: 40px 20px;
+  }
+  .container {
+    width: 1200px;
+    background: #FFFFFF;
+    border-radius: 24px;
+    box-shadow: 0 20px 60px rgba(81,60,200,0.08);
+    padding: 40px;
+  }
+  .title-bar {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .title-bar h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #1A1A2E;
+  }
+  .title-bar .sub { font-size: 13px; color: #6B7280; margin-top: 4px; }
+  
+  .flow-row {
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .layer-label {
+    width: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #FFF;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    letter-spacing: 4px;
+    padding: 16px 8px;
+    flex-shrink: 0;
+  }
+  .layer-content {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 16px;
+    border-radius: 12px;
+    align-items: center;
+  }
+  .node {
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    border: 1.5px solid;
+    min-width: 100px;
+  }
+  .node .detail {
+    font-size: 10px;
+    font-weight: 400;
+    opacity: 0.8;
+    margin-top: 2px;
+  }
+
+  /* Layer colors */
+  .l-client .layer-label { background: linear-gradient(135deg, #513CC8, #7C3AED); }
+  .l-client .layer-content { background: #F8F7FF; border: 1px solid #E0DAF5; }
+  .l-client .node { background: #F0EDFA; border-color: #C4B5FD; color: #513CC8; }
+
+  .l-gateway .layer-label { background: linear-gradient(135deg, #2563EB, #3B82F6); }
+  .l-gateway .layer-content { background: #F0F7FF; border: 1px solid #DBEAFE; }
+  .l-gateway .node { background: #EFF6FF; border-color: #93C5FD; color: #1E40AF; }
+
+  .l-service .layer-label { background: linear-gradient(135deg, #0D9488, #14B8A6); }
+  .l-service .layer-content { background: #F0FDFA; border: 1px solid #CCFBF1; }
+  .l-service .node { background: #F0FDFA; border-color: #5EEAD4; color: #0D9488; }
+
+  .l-data .layer-label { background: linear-gradient(135deg, #EA580C, #F97316); }
+  .l-data .layer-content { background: #FFF7ED; border: 1px solid #FFEDD5; }
+  .l-data .node { background: #FFF7ED; border-color: #FDBA74; color: #C2410C; }
+
+  .l-external .layer-label { background: linear-gradient(135deg, #BE185D, #EC4899); }
+  .l-external .layer-content { background: #FDF2F8; border: 1px solid #FCE7F3; }
+  .l-external .node { background: #FDF2F8; border-color: #F9A8D4; color: #BE185D; }
+
+  /* Arrow row */
+  .arrow-row {
+    display: flex;
+    justify-content: center;
+    padding: 6px 0;
+  }
+  .arrow-row .arrow {
+    color: #9CA3AF;
+    font-size: 18px;
+    letter-spacing: 8px;
+  }
+  .arrow-row .label {
+    font-size: 11px;
+    color: #6B7280;
+    margin-left: 16px;
+    background: #F3F4F6;
+    padding: 2px 10px;
+    border-radius: 10px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="title-bar">
+    <h1>QuantMind 技术架构流程图</h1>
+    <div class="sub">请求从浏览器出发，经 Nginx 网关 → Go 服务层 → 数据持久化 → 外部数据源</div>
+  </div>
+
+  <!-- Layer 1: Client -->
+  <div class="flow-row l-client">
+    <div class="layer-label">客 户 端</div>
+    <div class="layer-content">
+      <div class="node">React 18 SPA<div class="detail">Vite 构建 · HMR</div></div>
+      <div class="node">Zustand 状态<div class="detail">Token · 页面 · 用户</div></div>
+      <div class="node">Axios HTTP<div class="detail">Bearer Token</div></div>
+      <div class="node">Recharts 图表<div class="detail">面积·柱状·饼图</div></div>
+      <div class="node">Tailwind CSS<div class="detail">原子化样式</div></div>
+      <div class="node">20+ 页面<div class="detail">SPA 路由</div></div>
+    </div>
+  </div>
+
+  <div class="arrow-row">
+    <span class="arrow">▼ ▼ ▼</span>
+    <span class="label">HTTP / WebSocket</span>
+  </div>
+
+  <!-- Layer 2: Gateway -->
+  <div class="flow-row l-gateway">
+    <div class="layer-label">网 关 层</div>
+    <div class="layer-content">
+      <div class="node">Nginx :80<div class="detail">反向代理 · SPA回退</div></div>
+      <div class="node">静态资源<div class="detail">前端 dist 托管</div></div>
+      <div class="node">/api/* 转发<div class="detail">→ Go :8080</div></div>
+      <div class="node">CORS 中间件<div class="detail">跨域请求处理</div></div>
+      <div class="node">JWT 认证<div class="detail">golang-jwt v5</div></div>
+      <div class="node">审计中间件<div class="detail">全链路日志</div></div>
+    </div>
+  </div>
+
+  <div class="arrow-row">
+    <span class="arrow">▼ ▼ ▼</span>
+    <span class="label">Gin Router · RESTful API</span>
+  </div>
+
+  <!-- Layer 3: Service -->
+  <div class="flow-row l-service">
+    <div class="layer-label">服 务 层</div>
+    <div class="layer-content">
+      <div class="node">认证服务<div class="detail">登录 · 注册 · RBAC</div></div>
+      <div class="node">看板服务<div class="detail">多源数据聚合</div></div>
+      <div class="node">行情服务<div class="detail">4通道实时报价</div></div>
+      <div class="node">AI 智能体<div class="detail">Hermes Agent</div></div>
+      <div class="node">策略引擎<div class="detail">9策略 · 评分</div></div>
+      <div class="node">AI 选股<div class="detail">8步筛选</div></div>
+      <div class="node">AkShare 微服务<div class="detail">Python :9090</div></div>
+      <div class="node">定时任务<div class="detail">数据抓取调度</div></div>
+    </div>
+  </div>
+
+  <div class="arrow-row">
+    <span class="arrow">▼ ▼ ▼</span>
+    <span class="label">GORM ORM · AMQP</span>
+  </div>
+
+  <!-- Layer 4: Data -->
+  <div class="flow-row l-data">
+    <div class="layer-label">数 据 层</div>
+    <div class="layer-content">
+      <div class="node">MySQL 8.0<div class="detail">17张表 · 主存储</div></div>
+      <div class="node">SQLite<div class="detail">开发模式</div></div>
+      <div class="node">RabbitMQ 3.13<div class="detail">4队列 · 异步</div></div>
+      <div class="node">数据库缓存<div class="detail">历史行情持久化</div></div>
+    </div>
+  </div>
+
+  <div class="arrow-row">
+    <span class="arrow">▼ ▼ ▼</span>
+    <span class="label">HTTP · REST · WebSocket</span>
+  </div>
+
+  <!-- Layer 5: External -->
+  <div class="flow-row l-external">
+    <div class="layer-label">外 部 数 据</div>
+    <div class="layer-content">
+      <div class="node">Tushare Pro<div class="detail">全量日行情</div></div>
+      <div class="node">东方财富<div class="detail">涨停·龙虎榜</div></div>
+      <div class="node">新浪财经<div class="detail">实时报价</div></div>
+      <div class="node">腾讯财经<div class="detail">备用行情</div></div>
+      <div class="node">AkShare<div class="detail">涨停复盘</div></div>
+      <div class="node">BaoStock<div class="detail">历史回测</div></div>
+      <div class="node">AI LLM API<div class="detail">12家供应商</div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

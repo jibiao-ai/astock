@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuantMind 功能架构图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    background: #F5F3FF;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  .container {
+    width: 1200px;
+    background: #FFFFFF;
+    border-radius: 24px;
+    box-shadow: 0 20px 60px rgba(81, 60, 200, 0.08), 0 0 0 1px rgba(81, 60, 200, 0.06);
+    padding: 48px 40px;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .header .logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    background: linear-gradient(135deg, #513CC8, #7C3AED);
+    border-radius: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 8px 24px rgba(81, 60, 200, 0.3);
+  }
+  .header .logo svg { width: 32px; height: 32px; }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1A1A2E;
+    letter-spacing: 1px;
+  }
+  .header h1 span { color: #513CC8; }
+  .header .subtitle {
+    font-size: 14px;
+    color: #6B7280;
+    margin-top: 6px;
+    letter-spacing: 2px;
+  }
+  .header .version {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 3px 12px;
+    background: #F0EDFA;
+    color: #513CC8;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 12px;
+  }
+  .module {
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1.5px solid transparent;
+    transition: box-shadow 0.3s;
+  }
+  .module:hover {
+    box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+  }
+  .module-header {
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: 1px;
+  }
+  .module-header .icon {
+    width: 28px;
+    height: 28px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+  }
+  .module-body {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+  .feature-card {
+    background: #FFFFFF;
+    border: 1px solid #E8E5F3;
+    border-radius: 10px;
+    padding: 12px 14px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    transition: all 0.2s;
+    cursor: default;
+  }
+  .feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  }
+  .feature-card .sub {
+    font-size: 10px;
+    color: #9CA3AF;
+    margin-top: 3px;
+    font-weight: 400;
+  }
+
+  /* Module colors */
+  .m-purple .module-header { background: linear-gradient(135deg, #513CC8, #6D53E0); }
+  .m-purple { border-color: #E0DAF5; background: #FAFAFE; }
+
+  .m-blue .module-header { background: linear-gradient(135deg, #2563EB, #3B82F6); }
+  .m-blue { border-color: #DBEAFE; background: #F8FAFF; }
+
+  .m-teal .module-header { background: linear-gradient(135deg, #0D9488, #14B8A6); }
+  .m-teal { border-color: #CCFBF1; background: #F7FFFE; }
+
+  .m-orange .module-header { background: linear-gradient(135deg, #EA580C, #F97316); }
+  .m-orange { border-color: #FFEDD5; background: #FFFBF7; }
+
+  .m-rose .module-header { background: linear-gradient(135deg, #BE185D, #EC4899); }
+  .m-rose { border-color: #FCE7F3; background: #FFF7FB; }
+
+  .m-indigo .module-header { background: linear-gradient(135deg, #4338CA, #6366F1); }
+  .m-indigo { border-color: #E0E7FF; background: #F8F9FF; }
+
+  /* Bottom bar */
+  .bottom-bar {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 16px;
+  }
+  .tech-card {
+    background: linear-gradient(135deg, #513CC8 0%, #7C3AED 100%);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+    color: #FFFFFF;
+  }
+  .tech-card .label {
+    font-size: 11px;
+    opacity: 0.8;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .tech-card .value {
+    font-size: 15px;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+  .tech-card .desc {
+    font-size: 10px;
+    opacity: 0.7;
+    margin-top: 2px;
+  }
+
+  /* Connector arrows visual */
+  .connector-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0 8px;
+    font-size: 12px;
+    color: #9CA3AF;
+  }
+  .connector-row .line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #D1D5DB, transparent);
+  }
+  .connector-row .arrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #513CC8;
+    font-weight: 600;
+    font-size: 11px;
+    padding: 4px 12px;
+    background: #F0EDFA;
+    border-radius: 20px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">
+      <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M16 5C9.9 5 5 9.9 5 16s4.9 11 11 11c2.4 0 4.7-.8 6.5-2.1l2.6 2.6c.4.4 1.1.4 1.6 0 .4-.4.4-1.1 0-1.6l-2.6-2.6C25.2 21.5 27 18.9 27 16c0-6.1-4.9-11-11-11z" fill="none" stroke="white" stroke-width="2.2"/>
+        <path d="M18 10l-4 6.5h3l-1 5.5 4.5-7h-3l1-5z" fill="white"/>
+      </svg>
+    </div>
+    <h1><span>QuantMind</span> 智能量化平台</h1>
+    <div class="subtitle">功 能 架 构 图</div>
+    <div class="version">v2.1 · Full-Stack AI Quantitative Trading Platform</div>
+  </div>
+
+  <!-- Module Grid -->
+  <div class="grid">
+    <!-- 1. 行情数据中心 -->
+    <div class="module m-purple">
+      <div class="module-header">
+        <div class="icon">📊</div>
+        行情数据中心
+      </div>
+      <div class="module-body">
+        <div class="feature-card">看板大屏<div class="sub">10组件全屏</div></div>
+        <div class="feature-card">板块热力图<div class="sub">涨跌色块</div></div>
+        <div class="feature-card">涨跌停监控<div class="sub">涨停/跌停/炸板</div></div>
+        <div class="feature-card">龙虎榜<div class="sub">机构/游资净买</div></div>
+        <div class="feature-card">连板天梯<div class="sub">多日连板可视化</div></div>
+        <div class="feature-card">情绪温度计<div class="sub">0-100评分</div></div>
+      </div>
+    </div>
+
+    <!-- 2. 多源行情引擎 -->
+    <div class="module m-blue">
+      <div class="module-header">
+        <div class="icon">🔗</div>
+        多源行情引擎
+      </div>
+      <div class="module-body">
+        <div class="feature-card">Tushare Pro<div class="sub">主数据源·全量快照</div></div>
+        <div class="feature-card">东方财富<div class="sub">实时推送·资金流</div></div>
+        <div class="feature-card">新浪财经<div class="sub">实时报价·K线</div></div>
+        <div class="feature-card">腾讯财经<div class="sub">备用行情源</div></div>
+        <div class="feature-card">AkShare<div class="sub">涨停复盘·筛选</div></div>
+        <div class="feature-card">BaoStock<div class="sub">历史回测数据</div></div>
+      </div>
+    </div>
+
+    <!-- 3. AI 智能体 -->
+    <div class="module m-teal">
+      <div class="module-header">
+        <div class="icon">🤖</div>
+        AI 智能体 · Hermes Agent
+      </div>
+      <div class="module-body">
+        <div class="feature-card">智能问股<div class="sub">技术指标·资金流</div></div>
+        <div class="feature-card">智能诊股<div class="sub">投资评估·买卖点</div></div>
+        <div class="feature-card">主力分析<div class="sub">机构持仓·筹码</div></div>
+        <div class="feature-card">量化专家<div class="sub">风险·板块轮动</div></div>
+        <div class="feature-card">16项技能<div class="sub">K线·诊断·报告</div></div>
+        <div class="feature-card">持久记忆<div class="sub">跨会话上下文</div></div>
+      </div>
+    </div>
+
+    <!-- 4. 量化策略中心 -->
+    <div class="module m-orange">
+      <div class="module-header">
+        <div class="icon">🎯</div>
+        量化策略中心
+      </div>
+      <div class="module-body">
+        <div class="feature-card">龙头打板<div class="sub">11因子·满分130</div></div>
+        <div class="feature-card">强势回封<div class="sub">龙虎榜净买加分</div></div>
+        <div class="feature-card">趋势核心<div class="sub">MA20/60双升</div></div>
+        <div class="feature-card">隔夜套利<div class="sub">8步筛选·72%胜率</div></div>
+        <div class="feature-card">竞价精选<div class="sub">黄金公式·涨3-5%</div></div>
+        <div class="feature-card">事件爆发<div class="sub">政策→验证→入场</div></div>
+      </div>
+    </div>
+
+    <!-- 5. 交易辅助工具 -->
+    <div class="module m-rose">
+      <div class="module-header">
+        <div class="icon">⚡</div>
+        交易辅助工具
+      </div>
+      <div class="module-body">
+        <div class="feature-card">游资打板<div class="sub">日历·排行·个股</div></div>
+        <div class="feature-card">买卖决策<div class="sub">多维评分·AI建议</div></div>
+        <div class="feature-card">自选个股<div class="sub">K线·筹码·资金</div></div>
+        <div class="feature-card">股市播报<div class="sub">盘中实时播报</div></div>
+        <div class="feature-card">市场热榜<div class="sub">热门排行追踪</div></div>
+        <div class="feature-card">今日推荐<div class="sub">精选个股推送</div></div>
+      </div>
+    </div>
+
+    <!-- 6. 平台管理 -->
+    <div class="module m-indigo">
+      <div class="module-header">
+        <div class="icon">🛡️</div>
+        平台管理
+      </div>
+      <div class="module-body">
+        <div class="feature-card">JWT 认证<div class="sub">Bearer Token</div></div>
+        <div class="feature-card">RBAC 权限<div class="sub">Admin / User</div></div>
+        <div class="feature-card">审计日志<div class="sub">全链路追踪</div></div>
+        <div class="feature-card">AI 模型管理<div class="sub">12家供应商配置</div></div>
+        <div class="feature-card">用户管理<div class="sub">创建·编辑·删除</div></div>
+        <div class="feature-card">系统设置<div class="sub">Tushare·通知</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Connector -->
+  <div class="connector-row">
+    <div class="line"></div>
+    <div class="arrow">▼ 技 术 底 座 ▼</div>
+    <div class="line"></div>
+  </div>
+
+  <!-- Tech Stack Bottom Bar -->
+  <div class="bottom-bar">
+    <div class="tech-card">
+      <div class="label">后端</div>
+      <div class="value">Go 1.22 + Gin</div>
+      <div class="desc">GORM · MySQL 8 · SQLite</div>
+    </div>
+    <div class="tech-card">
+      <div class="label">前端</div>
+      <div class="value">React 18 + Vite</div>
+      <div class="desc">Tailwind · Zustand · Recharts</div>
+    </div>
+    <div class="tech-card">
+      <div class="label">消息队列</div>
+      <div class="value">RabbitMQ 3.13</div>
+      <div class="desc">4队列 · 异步任务调度</div>
+    </div>
+    <div class="tech-card">
+      <div class="label">部署</div>
+      <div class="value">Docker Compose</div>
+      <div class="desc">5服务 · Nginx反向代理</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
