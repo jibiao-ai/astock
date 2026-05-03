@@ -1048,22 +1048,22 @@ export default function DashboardPage() {
       </div>
 
       {/* ==================== Row 4: 热力板块 + 热力概念 ==================== */}
-      <div className="grid grid-cols-12 gap-3">
-        <div className="col-span-6 glass-card p-4">
+      <div className="grid grid-cols-12 gap-3" style={{ alignItems: 'stretch' }}>
+        <div className="col-span-6 glass-card p-4 flex flex-col">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Flame size={16} style={{ color: '#513CC8' }} /> 热力板块 {overview?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({overview.trade_date})</span>} <span className="text-[10px] text-gray-400 font-normal">({sectorHeatTotal || sectors.length}个)</span></h3>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-4 gap-1.5 flex-1">
             {sectors.slice((sectorHeatPage - 1) * 16, sectorHeatPage * 16).map((s, i) => {
               const intensity = Math.min(Math.abs(s.change_pct) / 4, 1)
               const bg = s.change_pct >= 0
                 ? `rgba(239,68,68,${0.08 + intensity * 0.25})`
                 : `rgba(34,197,94,${0.08 + intensity * 0.25})`
               return (
-                <div key={i} className="rounded-lg p-2 text-center border border-transparent hover:border-gray-200 transition" style={{ background: bg }}>
+                <div key={i} className="rounded-lg p-2.5 text-center border border-transparent hover:border-gray-200 transition flex flex-col justify-center" style={{ background: bg, minHeight: '72px' }}>
                   <p className="text-xs font-medium truncate text-gray-700">{s.name}</p>
                   <p className={`text-sm font-bold ${s.change_pct >= 0 ? 'stock-up' : 'stock-down'}`}>
                     {s.change_pct > 0 ? '+' : ''}{s.change_pct?.toFixed(2)}%
                   </p>
-                  <p className="text-[10px] text-gray-400 truncate">{s.lead_stock}</p>
+                  <p className="text-[10px] text-gray-400 truncate">{s.lead_stock || '\u00A0'}</p>
                 </div>
               )
             })}
@@ -1073,9 +1073,9 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="col-span-6 glass-card p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Lightbulb size={16} style={{ color: '#F59E0B' }} /> 热力概念 {overview?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({overview.trade_date})</span>} <span className="text-[10px] text-gray-400 font-normal">({finalConceptData.length}个)</span></h3>
-          <div className="grid grid-cols-4 gap-1.5">
+        <div className="col-span-6 glass-card p-4 flex flex-col">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-gray-800"><Lightbulb size={16} style={{ color: '#513CC8' }} /> 热力概念 {overview?.trade_date && <span className="text-[10px] text-gray-400 font-normal ml-1">({overview.trade_date})</span>} <span className="text-[10px] text-gray-400 font-normal">({finalConceptData.length}个)</span></h3>
+          <div className="grid grid-cols-4 gap-1.5 flex-1">
             {finalConceptData.slice((conceptHeatPage - 1) * 16, conceptHeatPage * 16).map((c, i) => {
               const changePct = c.change_pct || c.pct_change || 0
               const intensity = Math.min(Math.abs(changePct) / 4, 1)
@@ -1083,12 +1083,12 @@ export default function DashboardPage() {
                 ? `rgba(239,68,68,${0.08 + intensity * 0.25})`
                 : `rgba(34,197,94,${0.08 + intensity * 0.25})`
               return (
-                <div key={i} className="rounded-lg p-2 text-center border border-transparent hover:border-gray-200 transition" style={{ background: bg }}>
+                <div key={i} className="rounded-lg p-2.5 text-center border border-transparent hover:border-gray-200 transition flex flex-col justify-center" style={{ background: bg, minHeight: '72px' }}>
                   <p className="text-xs font-medium truncate text-gray-700">{c.name}</p>
                   <p className={`text-sm font-bold ${changePct >= 0 ? 'stock-up' : 'stock-down'}`}>
                     {changePct > 0 ? '+' : ''}{changePct?.toFixed(2)}%
                   </p>
-                  <p className="text-[10px] text-gray-400 truncate">{c.net_flow ? formatFlow(c.net_flow * 10000) : (c.volume ? `${(c.volume / 10000).toFixed(0)}万` : '')}</p>
+                  <p className="text-[10px] text-gray-400 truncate">{c.net_flow ? formatFlow(c.net_flow * 10000) : (c.volume ? `${(c.volume / 10000).toFixed(0)}万` : '\u00A0')}</p>
                 </div>
               )
             })}
