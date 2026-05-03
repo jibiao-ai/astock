@@ -292,8 +292,8 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/jibiao-ai/astock.git
-cd astock
+git clone https://github.com/jibiao-ai/QuantMind.git
+cd QuantMind/
 
 # 2. 复制并编辑环境变量
 cp .env.example .env
