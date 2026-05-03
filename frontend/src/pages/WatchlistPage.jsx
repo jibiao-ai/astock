@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { getWatchlistQuotes, addWatchlistItem, removeWatchlistItem, getStockQuote, getTrendChart, getChipDistribution, getStockFundFlow, getDragonTigerHotMoney, getGubaDiscussion } from '../services/api'
-import { Plus, Trash2, RefreshCw, Star, Search, TrendingUp, TrendingDown, ArrowUpDown, X, BarChart3, Activity, DollarSign, Users, LineChart, MessageCircle, Eye, Share2, Image, Video, ExternalLink, Loader2 } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, Star, Search, TrendingUp, TrendingDown, ArrowUpDown, X, BarChart3, Activity, DollarSign, Users, LineChart, MessageCircle, Eye, Share2, Image, Video, ExternalLink, Loader2, AlertTriangle } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, LineChart as RLineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ComposedChart, ReferenceLine } from 'recharts'
 import toast from 'react-hot-toast'
 
@@ -437,6 +437,71 @@ function ChipPeakChart({ klines, chips, summary }) {
   )
 }
 
+// ==================== Modern Confirm Dialog ====================
+function ConfirmDialog({ open, title, message, detail, confirmText, cancelText, danger, onConfirm, onCancel }) {
+  const overlayRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handleKey = (e) => { if (e.key === 'Escape') onCancel?.() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [open, onCancel])
+
+  if (!open) return null
+
+  return (
+    <div ref={overlayRef}
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      onClick={(e) => { if (e.target === overlayRef.current) onCancel?.() }}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" style={{ animation: 'fadeIn 0.15s ease-out' }} />
+      {/* Dialog */}
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden"
+        style={{ animation: 'scaleIn 0.2s cubic-bezier(0.34,1.56,0.64,1)' }}>
+        <div className="p-6">
+          {/* Icon */}
+          <div className={`w-12 h-12 mx-auto rounded-xl flex items-center justify-center mb-4 ${
+            danger ? 'bg-red-50' : 'bg-[#F0EDFA]'}`}>
+            {danger
+              ? <Trash2 size={22} className="text-red-500" />
+              : <AlertTriangle size={22} className="text-[#513CC8]" />}
+          </div>
+          {/* Title */}
+          <h3 className="text-center text-base font-bold text-gray-900 mb-1.5">{title}</h3>
+          {/* Message */}
+          <p className="text-center text-sm text-gray-500 leading-relaxed">{message}</p>
+          {/* Detail info */}
+          {detail && (
+            <div className="mt-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+              <p className="text-center text-xs text-gray-600 font-medium">{detail}</p>
+            </div>
+          )}
+        </div>
+        {/* Buttons */}
+        <div className="flex gap-3 px-6 pb-6">
+          <button onClick={onCancel}
+            className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all active:scale-[0.97]">
+            {cancelText || '取消'}
+          </button>
+          <button onClick={onConfirm}
+            className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-white transition-all active:scale-[0.97] shadow-sm ${
+              danger
+                ? 'bg-red-500 hover:bg-red-600 shadow-red-200'
+                : 'hover:opacity-90 shadow-purple-200'}`}
+            style={danger ? {} : { background: '#513CC8' }}>
+            {confirmText || '确认'}
+          </button>
+        </div>
+      </div>
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes scaleIn { from { opacity: 0; transform: scale(0.85) } to { opacity: 1; transform: scale(1) } }
+      `}</style>
+    </div>
+  )
+}
+
 export default function WatchlistPage() {
   const [stocks, setStocks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -444,6 +509,8 @@ export default function WatchlistPage() {
   const [adding, setAdding] = useState(false)
   const [selected, setSelected] = useState(new Set())
   const [refreshing, setRefreshing] = useState(false)
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState({ open: false })
   // Stock detail panel
   const [detailStock, setDetailStock] = useState(null)
   const [detailTab, setDetailTab] = useState('trend')
@@ -604,40 +671,61 @@ export default function WatchlistPage() {
   }
 
   const handleRemove = async (code, name) => {
-    if (!confirm(`确定删除自选股 ${name}(${code}) ?`)) return
-    try {
-      const res = await removeWatchlistItem(code)
-      if (res.code === 0) {
-        toast.success(`已删除 ${name}`)
-        setStocks(prev => prev.filter(s => s.code !== code))
-        setSelected(prev => { const n = new Set(prev); n.delete(code); return n })
-        if (detailStock?.code === code) {
-          setDetailStock(null)
-          setGubaPosts([])
+    setConfirmDialog({
+      open: true,
+      title: '删除自选股',
+      message: '确定将该股票从自选列表中移除吗？',
+      detail: `${name}（${code}）`,
+      confirmText: '确认删除',
+      danger: true,
+      onConfirm: async () => {
+        setConfirmDialog({ open: false })
+        try {
+          const res = await removeWatchlistItem(code)
+          if (res.code === 0) {
+            toast.success(`已删除 ${name}`)
+            setStocks(prev => prev.filter(s => s.code !== code))
+            setSelected(prev => { const n = new Set(prev); n.delete(code); return n })
+            if (detailStock?.code === code) {
+              setDetailStock(null)
+              setGubaPosts([])
+            }
+          } else {
+            toast.error(res.message || '删除失败')
+          }
+        } catch (e) {
+          toast.error('删除失败')
         }
-      } else {
-        toast.error(res.message || '删除失败')
       }
-    } catch (e) {
-      toast.error('删除失败')
-    }
+    })
   }
 
   const handleBatchRemove = async () => {
     if (selected.size === 0) return
-    if (!confirm(`确定删除选中的 ${selected.size} 只股票?`)) return
-    for (const code of selected) {
-      try {
-        await removeWatchlistItem(code)
-      } catch (e) {}
-    }
-    toast.success(`已删除 ${selected.size} 只股票`)
-    setSelected(new Set())
-    if (detailStock && selected.has(detailStock.code)) {
-      setDetailStock(null)
-      setGubaPosts([])
-    }
-    loadStocks()
+    const names = stocks.filter(s => selected.has(s.code)).map(s => s.name).join('、')
+    setConfirmDialog({
+      open: true,
+      title: '批量删除自选股',
+      message: `确定将选中的 ${selected.size} 只股票从自选列表中移除吗？`,
+      detail: names.length > 30 ? names.slice(0, 30) + '...' : names,
+      confirmText: `删除 ${selected.size} 只`,
+      danger: true,
+      onConfirm: async () => {
+        setConfirmDialog({ open: false })
+        for (const code of selected) {
+          try {
+            await removeWatchlistItem(code)
+          } catch (e) {}
+        }
+        toast.success(`已删除 ${selected.size} 只股票`)
+        setSelected(new Set())
+        if (detailStock && selected.has(detailStock.code)) {
+          setDetailStock(null)
+          setGubaPosts([])
+        }
+        loadStocks()
+      }
+    })
   }
 
   const toggleSelect = (code) => {
@@ -1118,6 +1206,19 @@ export default function WatchlistPage() {
           </div>
         )}
       </div>
+
+      {/* Modern Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        detail={confirmDialog.detail}
+        confirmText={confirmDialog.confirmText}
+        cancelText={confirmDialog.cancelText}
+        danger={confirmDialog.danger}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ open: false })}
+      />
     </div>
   )
 }
